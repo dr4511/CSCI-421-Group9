@@ -32,23 +32,53 @@ public class Page {
     // Attempt to add record. Returns true if successful.
     // Splits page if not enough space.
     public boolean addRecord(byte[] record) {
-        int recordSize = record.length;
-        int slotSize = 2 * Integer.BYTES;
+    int slotSize = 2 * Integer.BYTES;
+    int recordSize = record.length;
 
-        if (getFreeSpace() < recordSize + slotSize) {
-            return false; // not enough space
-        }
-
-        // insert record at end of free space
-        freeSpaceEnd -= recordSize;
-        System.arraycopy(record, 0, dataArea, freeSpaceEnd, recordSize);
-
-        // add slot
-        slots.add(new Slot(freeSpaceEnd, recordSize));
-
+    // Fits in current page
+    if (getFreeSpace() >= recordSize + slotSize) {
+        insertRecordInternal(record); // always calls Slot constructor
         return true;
     }
 
+    // Page full → split
+    Page firstPage = split(); // split creates two new pages with proper slots
+
+    // Try inserting into first page
+    if (firstPage.getFreeSpace() >= recordSize + slotSize) {
+        firstPage.insertRecordInternal(record);
+        copyFromPage(firstPage);
+        return true;
+    }
+
+    // Try inserting into second page
+    Page secondPage = firstPage.getNextPage();
+    if (secondPage != null && secondPage.getFreeSpace() >= recordSize + slotSize) {
+        secondPage.insertRecordInternal(record);
+        copyFromPage(firstPage);
+        return true;
+    }
+
+    // Too big for single page
+    return false;
+}
+
+// Helper to copy data and slots from another page (after split)
+private void copyFromPage(Page source) {
+    this.dataArea = source.dataArea;
+    this.slots = source.slots;
+    this.freeSpaceEnd = source.freeSpaceEnd;
+    this.nextPage = source.nextPage;
+}
+    private void insertRecordInternal(byte[] record) {
+    int recordSize = record.length;
+    freeSpaceEnd -= recordSize;
+    System.arraycopy(record, 0, dataArea, freeSpaceEnd, recordSize);
+
+    // Slot constructor is called here
+    Slot slot = new Slot(freeSpaceEnd, recordSize);
+    slots.add(slot);
+}
     // Attempt to remove record. Returns true if successful.
     public boolean removeRecord(int slotIndex) {
         if (slotIndex < 0 || slotIndex >= slots.size()) return false;
@@ -76,7 +106,7 @@ public class Page {
 
     // Split page due to insufficient space. Does so by creating two new pages and halving data.
     // Returns new page that points to another page which inherits the original's nextPage.
-    public Page split() {
+    private Page split() {
         Page first = new Page(pageSize);
         Page second = new Page(pageSize);
 
