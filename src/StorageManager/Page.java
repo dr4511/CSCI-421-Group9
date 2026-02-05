@@ -29,6 +29,8 @@ public class Page {
         this.nextPage = null;
     }
 
+    // Attempt to add record. Returns true if successful.
+    // Splits page if not enough space.
     public boolean addRecord(byte[] record) {
         int recordSize = record.length;
         int slotSize = 2 * Integer.BYTES;
@@ -47,7 +49,7 @@ public class Page {
         return true;
     }
 
-
+    // Attempt to remove record. Returns true if successful.
     public boolean removeRecord(int slotIndex) {
         if (slotIndex < 0 || slotIndex >= slots.size()) return false;
 
@@ -72,7 +74,8 @@ public class Page {
         return true;
     }
 
-
+    // Split page due to insufficient space. Does so by creating two new pages and halving data.
+    // Returns new page that points to another page which inherits the original's nextPage.
     public Page split() {
         Page first = new Page(pageSize);
         Page second = new Page(pageSize);
