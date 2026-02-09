@@ -1,6 +1,10 @@
 import java.util.Scanner;
 
 import CommandParsers.ParseCreate;
+import CommandParsers.ParseSelect;
+import CommandParsers.ParseInsert;
+import CommandParsers.ParseDrop;
+import CommandParsers.ParseAlter;
 
 public class JottQL {
     public static void main(String[] args) {
