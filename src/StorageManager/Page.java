@@ -2,6 +2,7 @@ package StorageManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.ByteBuffer;
 
 public class Page {
 
@@ -14,19 +15,19 @@ public class Page {
         }
     }
 
-    private int pageSize;
+    private int pageID;
     private byte[] dataArea;
     private List<Slot> slots;
     private int freeSpaceEnd;  // grows backward
-    private Page nextPage;
+    private int nextPageID;
+    private boolean isDirty;
 
 
-    public Page(int pageSize) {
-        this.pageSize = pageSize;
+    public Page() {
         this.dataArea = new byte[pageSize];
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
-        this.nextPage = null;
+        this.nextPageID = -1;              // -1 means no nextPage
     }
 
     // Attempt to add record. Returns true if successful.
@@ -68,7 +69,7 @@ private void copyFromPage(Page source) {
     this.dataArea = source.dataArea;
     this.slots = source.slots;
     this.freeSpaceEnd = source.freeSpaceEnd;
-    this.nextPage = source.nextPage;
+    this.nextPageID = source.nextPageID;
 }
     private void insertRecordInternal(byte[] record) {
     int recordSize = record.length;
@@ -128,8 +129,8 @@ private void copyFromPage(Page source) {
             second.addRecord(record);
         }
 
-        first.setNextPage(second);
-        second.setNextPage(this.nextPage);
+        first.setNextPage(second.pageID);
+        second.setNextPage(this.nextPageID);
 
         return first;
     }
@@ -154,11 +155,59 @@ private void copyFromPage(Page source) {
         return list;
     }
 
-    public Page getNextPage() {
-        return nextPage;
+    public int getNextPage() {
+        return nextPageID;
     }
 
-    public void setNextPage(Page next) {
-        this.nextPage = next;
+    public void setNextPage(int next) {
+        this.nextPageID = next;
     }
+
+    public boolean hasNextPage() {
+        if(this.nextPageID == -1){
+            return false;
+        }
+        return true;
+    }
+
+    public boolean isDirty() {
+        return this.isDirty;
+    }
+
+    public ByteBuffer serializePage() {
+        int slotCount = slots.size();
+
+        int headerSize = Integer.BYTES * 4    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
+                                        + 1;  // dirty Flag
+        int slotSectionSize = slotCount * (2 * Integer.BYTES);
+        
+        int totalSize = headerSize + slotSectionSize;
+
+
+        ByteBuffer buffer = ByteBuffer.allocate(totalSize);
+
+        // Header
+        buffer.putInt(pageID);
+        buffer.putInt(freeSpaceEnd);
+        buffer.putInt(slotCount);
+        buffer.putInt(nextPageID);
+        buffer.put((byte) (isDirty ? 1 : 0));
+
+        // Slot directory
+        for (Slot s : slots) {
+        buffer.putInt(s.offset);
+        buffer.putInt(s.length);
+        }
+
+        // Data area
+        buffer.put(dataArea);
+
+        buffer.flip();
+        return buffer;
+    }
+
+    public static Page deserializePage(ByteBuffer buffer) {
+        buffer.rewind();
+    }
+
 }
