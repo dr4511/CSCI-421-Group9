@@ -1,6 +1,6 @@
 package Catalog;
 
-import DataTypes.DataType;
+import Common.DataType;
 
 public class AttributeSchema {
 
@@ -8,6 +8,7 @@ public class AttributeSchema {
     private DataType type;
     private boolean isPrimaryKey;
     private boolean isNotNull;
+    private Object defaultValue;
 
     public AttributeSchema(String name, DataType dataType,
                            boolean isPrimaryKey, boolean isNotNull,
@@ -16,6 +17,7 @@ public class AttributeSchema {
         this.type = dataType;
         this.isPrimaryKey = isPrimaryKey;
         this.isNotNull = isNotNull;
+        this.defaultValue = defaultValue;
     }
 
     public String getName() {
@@ -32,5 +34,9 @@ public class AttributeSchema {
 
     public boolean isNotNull() {
         return isNotNull;
+    }
+
+    public Object getDefaultValue() {
+        return defaultValue;
     }
 }
