@@ -16,7 +16,7 @@ public class AttributeSchema {
         this.name = name.toLowerCase();  // Case-insensitive
         this.type = dataType;
         this.isPrimaryKey = isPrimaryKey;
-        this.isNotNull = isNotNull;
+        this.isNotNull = isNotNull || isPrimaryKey;
         this.defaultValue = defaultValue;
     }
 
