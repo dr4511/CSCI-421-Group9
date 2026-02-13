@@ -68,14 +68,14 @@ public class Buffer {
      * Creates a new page id (free list first), creates an empty page, and puts it in buffer.
      */
     public Page createNewPage() {
-        Integer newPageId = getFreePageIdFromCatalog();
-        Page newPage;
+        Integer newPageId = getFreePageListHead();
 
-        if (newPageId == null) {
-            newPageId = appendNewPageToHW();
+        if (newPageId != -1) {
+            // update free pages (dont forget setting Catalog heaD)
+           return new Page(newPageId);
         }
         
-        newPage = createEmptyPage(newPageId);
+        Page = new Page(newPageId);
         updateTableLastPageLink(newPageId);
 
         addPageToBuffer(newPage);
@@ -90,7 +90,7 @@ public class Buffer {
 
         evictPageIfNeeded();
 
-        int pageId = getPageId(page);
+        int pageId = page.getPageId();
         this.pagesById.put(pageId, page);
     }
 
@@ -111,7 +111,7 @@ public class Buffer {
         Arrays.sort(pageArray, Comparator.comparingLong(this::getLastAccessTimestamp));
 
         Page evictPage = pageArray[0];
-        int evictPageId = getPageId(evictPage);
+        int evictPageId = evictPage.getPageId();
 
         writePageToHW(evictPage);
         this.pagesById.remove(evictPageId);
@@ -129,20 +129,20 @@ public class Buffer {
      * Uses ByteBuffer as the hardware IO boundary.
      */
     private void writePageToHW(Page page) {
-        int pageId = getPageId(page);
+        int pageId = page.getPageId();
 
         byte[] serialized = serializePage(page);
         ByteBuffer rawPageBytes = ByteBuffer.wrap(serialized);
-        writePageBytesToHW(pageId, rawPageBytes);
+
+        if (page.getNumRecords == 0){
+            writeEmptyPageBytesToHW()
+        } else {
+            writePageBytesToHW(pageId, rawPageBytes);
+        }
     }
 
     private void onPageAccess(Page page) {
         // TODO(team): update page's last-access timestamp inside Page object. delegate to Page.updateLastAccessTimestamp(...) once available.
-    }
-
-    private int getPageId(Page page) {
-        // TODO(team): return page.getId();
-        throw new UnsupportedOperationException("Page.getId() is not implemented yet.");
     }
 
     private long getLastAccessTimestamp(Page page) {

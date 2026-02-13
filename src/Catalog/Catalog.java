@@ -11,6 +11,7 @@ public class Catalog {
     private int freePageListHead;
     private int pageSize;
     private boolean indexing;
+    private int lastPageId;
 
     public Catalog(int pageSize, boolean indexing) {
         this.tables = new HashMap<>();
@@ -63,11 +64,20 @@ public class Catalog {
         return indexing;
     }
 
+    public int getLastPageId() {
+        return this.lastPageId;
+    }
+
+    public void setLastPageId(int lastPageId) {
+        this.lastPageId = lastPageId;
+    }
+
     public void saveToFile(String path) throws IOException {
         try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(path)))) {
             out.writeInt(pageSize);
             out.writeBoolean(indexing);
             out.writeInt(freePageListHead);
+            out.writeInt(lastPageId);
 
             out.writeInt(tables.size());
             for (TableSchema table : tables.values()) {
@@ -82,6 +92,7 @@ public class Catalog {
             catalog.pageSize = in.readInt();
             catalog.indexing = in.readBoolean();
             catalog.freePageListHead = in.readInt();
+            catalog.lastPageId = in.readInt();
 
             int tableCount = in.readInt();
             for (int i = 0; i < tableCount; i++) {

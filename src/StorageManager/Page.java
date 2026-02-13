@@ -146,6 +146,9 @@ private void copyFromPage(Page source) {
         first.setNextPage(second.pageID);
         second.setNextPage(this.nextPageID);
 
+        this.slots = []
+        buffer.writePageToHW(this)
+
         return new SplitResult(first, second);
     }
 
@@ -167,6 +170,10 @@ private void copyFromPage(Page source) {
             list.add(rec);
         }
         return list;
+    }
+
+    public int getPageID() {
+        return this.pageID
     }
 
     public int getNextPage() {
