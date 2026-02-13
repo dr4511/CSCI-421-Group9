@@ -15,6 +15,17 @@ public class Page {
         }
     }
 
+    private static class SplitResult {
+        Page first;
+        Page second;
+
+        SplitResult(Page first, Page second) {
+        this.first = first;
+        this.second = second;
+        }
+    }
+
+    private int pageSize;
     private int pageID;
     private byte[] dataArea;
     private List<Slot> slots;
@@ -23,7 +34,8 @@ public class Page {
     private boolean isDirty;
 
 
-    public Page() {
+    public Page(int pageID, int pageSize) {
+        this.pageSize = pageSize;
         this.dataArea = new byte[pageSize];
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
@@ -42,8 +54,10 @@ public class Page {
         return true;
     }
 
-    // Page full → split
-    Page firstPage = split(); // split creates two new pages with proper slots
+    SplitResult split = split();
+
+    Page firstPage = split.first;
+    Page secondPage = split.second;
 
     // Try inserting into first page
     if (firstPage.getFreeSpace() >= recordSize + slotSize) {
@@ -53,8 +67,7 @@ public class Page {
     }
 
     // Try inserting into second page
-    Page secondPage = firstPage.getNextPage();
-    if (secondPage != null && secondPage.getFreeSpace() >= recordSize + slotSize) {
+    if (secondPage.getFreeSpace() >= recordSize + slotSize) {
         secondPage.insertRecordInternal(record);
         copyFromPage(firstPage);
         return true;
@@ -106,33 +119,34 @@ private void copyFromPage(Page source) {
     }
 
     // Split page due to insufficient space. Does so by creating two new pages and halving data.
-    // Returns new page that points to another page which inherits the original's nextPage.
-    private Page split() {
-        Page first = new Page(pageSize);
-        Page second = new Page(pageSize);
+    private SplitResult split() {
+
+        Page first = new Page(this.pageID,pageSize);
+        Page second = new Page(,pageSize);
 
         int mid = slots.size() / 2;
 
-        // first half
+        // copy first half
         for (int i = 0; i < mid; i++) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
             System.arraycopy(dataArea, s.offset, record, 0, s.length);
-            first.addRecord(record);
+            first.insertRecordInternal(record);
         }
 
-        // second half
+        // copy second half
         for (int i = mid; i < slots.size(); i++) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
             System.arraycopy(dataArea, s.offset, record, 0, s.length);
-            second.addRecord(record);
+            second.insertRecordInternal(record);
         }
 
+        // preserve linked list
         first.setNextPage(second.pageID);
         second.setNextPage(this.nextPageID);
 
-        return first;
+        return new SplitResult(first, second);
     }
 
 
@@ -177,7 +191,7 @@ private void copyFromPage(Page source) {
     public ByteBuffer serializePage() {
         int slotCount = slots.size();
 
-        int headerSize = Integer.BYTES * 4    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
+        int headerSize = Integer.BYTES * 5    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
                                         + 1;  // dirty Flag
         int slotSectionSize = slotCount * (2 * Integer.BYTES);
         
@@ -188,6 +202,7 @@ private void copyFromPage(Page source) {
 
         // Header
         buffer.putInt(pageID);
+        buffer.putInt(pageSize);
         buffer.putInt(freeSpaceEnd);
         buffer.putInt(slotCount);
         buffer.putInt(nextPageID);
@@ -208,6 +223,30 @@ private void copyFromPage(Page source) {
 
     public static Page deserializePage(ByteBuffer buffer) {
         buffer.rewind();
+
+        // Header
+        int pageID = buffer.getInt();
+        int pageSize = buffer.getInt();
+        int freeSpaceEnd = buffer.getInt();
+        int slotCount = buffer.getInt();
+        int nextPageID = buffer.getInt();
+        boolean dirty = buffer.get() == 1;
+
+        Page page = new Page(pageID,pageSize);
+        page.freeSpaceEnd = freeSpaceEnd;
+        page.nextPageID = nextPageID;
+        page.isDirty = dirty;
+
+        // Slots
+        for (int i = 0; i < slotCount; i++) {
+            int offset = buffer.getInt();
+            int length = buffer.getInt();
+            page.slots.add(new Slot(offset, length));
+        }
+
+        // Data Area
+        buffer.get(page.dataArea);
+        return page;
     }
 
 }
