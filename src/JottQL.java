@@ -1,8 +1,8 @@
+import CommandParsers.Token;
+import java.util.List;
 import java.util.Scanner;
-
-import CommandParsers.CommandParser;
-import BufferManager.Buffer;
-import StorageManager.StorageManager;
+// import BufferManager.Buffer;
+// import StorageManager.StorageManager;
 
 public class JottQL {
 
@@ -53,38 +53,13 @@ public class JottQL {
             }
 
             String command = readRestOfCommand(scanner, firstLine);
-            String firstWord = command.split("\\s+")[0];
-
-            switch (firstWord.toUpperCase()) {
-
-                case "CREATE":
-                    System.out.println("CREATE command: " + command);
-                    System.out.println(CommandParser.parseCreate(command));
-                    break;
-
-                case "SELECT":
-                    System.out.println("SELECT command: " + command);
-                    System.out.println(CommandParser.parseSelect(command));
-                    break;
-
-                case "INSERT":
-                    System.out.println("INSERT command: " + command);
-                    System.out.println(CommandParser.parseInsert(command));
-                    break;
-
-                case "DROP":
-                    System.out.println("DROP command: " + command);
-                    System.out.println(CommandParser.parseDrop(command));
-                    break;
-
-                case "ALTER":
-                    System.out.println("ALTER command: " + command);
-                    System.out.println(CommandParser.parseAlter(command));
-                    break;
-
-                default:
-                    System.out.println("Unknown command: " + command);
-                    break;
+            try {
+                List<Token> tokens = Token.tokenize(command);
+                for (int i = 0; i < tokens.size(); i++) {
+                    System.out.println(tokens.get(i));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
     }
