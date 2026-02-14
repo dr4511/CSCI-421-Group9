@@ -146,8 +146,8 @@ private void copyFromPage(Page source) {
         first.setNextPage(second.pageID);
         second.setNextPage(this.nextPageID);
 
+        // make free page and add to tracking linked list
         this.slots = []
-        buffer.writePageToHW(this)
 
         return new SplitResult(first, second);
     }
@@ -173,7 +173,7 @@ private void copyFromPage(Page source) {
     }
 
     public int getPageID() {
-        return this.pageID
+        return this.pageID;
     }
 
     public int getNextPage() {
