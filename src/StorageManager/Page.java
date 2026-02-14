@@ -3,7 +3,6 @@ package StorageManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.ByteBuffer;
-import java.util.Comparator;
 
 public class Page implements Comparable<Page> {
 

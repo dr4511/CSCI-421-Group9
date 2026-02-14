@@ -95,9 +95,8 @@ public class StorageManager {
         while (currPageId != -1) {
             Page page = this.buffer.getPage(currPageId);
 
-            freePage(currPageId);
-
             int nextPageId = page.getNextPage();
+            freePage(page);
             currPageId = nextPageId;
         }
     }
@@ -163,12 +162,8 @@ public class StorageManager {
             if (!added) {
                 return false;
             }
-
-            // TODO(team): rewrite existing rows to append default/null value for new attribute.
-            return true;
         }
-
-        if (operation == AlterOperation.DROP) {
+        else if (operation == AlterOperation.DROP) {
             if (dropAttributeName == null || dropAttributeName.isBlank()) {
                 throw new IllegalArgumentException("dropAttributeName must be provided for DROP.");
             }
@@ -182,12 +177,54 @@ public class StorageManager {
             if (!dropped) {
                 return false;
             }
+        } else {
+            throw new IllegalArgumentException("Unsupported alter operation: " + operation);
+        }
 
-            // TODO(team): rewrite existing rows to remove dropped attribute data.
+        // Rebuild table pages: create new pages, copy transformed data, relink chain, free old pages.
+        int oldHeadPageId = table.getHeadPageId();
+        if (oldHeadPageId == -1) {
             return true;
         }
 
-        throw new IllegalArgumentException("Unsupported alter operation: " + operation);
+        int currentOldPageId = oldHeadPageId;
+        int newHeadPageId = -1;
+        int newPrevPageId = -1;
+
+        while (currentOldPageId != -1) {
+            Page oldPage = this.buffer.getPage(currentOldPageId);
+            int nextOldPageId = oldPage.getNextPage();
+
+            Page newPage = this.buffer.createNewPage();
+            List<byte[]> oldRecords = oldPage.getRecords();
+
+            for (byte[] oldRecord : oldRecords) {
+                byte[] rewrittenRecord = rewriteRecordForAlter(
+                    oldRecord, operation, addAttribute, dropAttributeName
+                );
+
+                boolean inserted = newPage.addRecord(rewrittenRecord);
+                if (!inserted) {
+                    throw new IllegalStateException(
+                        "ALTER rebuild failed: rewritten record did not fit in new page."
+                    );
+                }
+            }
+
+            if (newHeadPageId == -1) {
+                newHeadPageId = newPage.getPageID();
+                table.setHeadPageId(newHeadPageId);
+            } else {
+                updateTablePageLink(newPrevPageId, newPage.getPageID());
+            }
+
+            newPrevPageId = newPage.getPageID();
+
+            freePage(oldPage);
+            currentOldPageId = nextOldPageId;
+        }
+
+        return true;
     }
 
     public void freePage (Page page) {
@@ -198,7 +235,7 @@ public class StorageManager {
 
         int currFreePageId = catalog.getFreePageListHead();
         if (currFreePageId == -1){
-            catalog.setFreePageListHead(currFreePageId);
+            catalog.setFreePageListHead(page.getPageID());
             return;
         }
 

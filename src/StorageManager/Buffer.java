@@ -6,7 +6,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashMap;
 
 import Catalog.Catalog;
@@ -129,7 +128,20 @@ public class Buffer {
         this.pagesById.remove(evictPageId);
     }
 
-    // TODO: write evict all where all pages are evicted from buffer
+    public void evictAll() {
+        if (this.pagesById.isEmpty()) {
+            return;
+        }
+
+        Page[] pageArray = this.pagesById.values().toArray(new Page[0]);
+        for (Page page : pageArray) {
+            if (page.isDirty()) {
+                writePageToHW(page);
+            }
+        }
+
+        this.pagesById.clear();
+    }
 
     /**
      * Uses ByteBuffer as the hardware IO boundary.
@@ -236,4 +248,5 @@ public class Buffer {
     private long pageOffset(int pageId) {
         return (long) pageId * this.pageSizeBytes;
     }
+
 }
