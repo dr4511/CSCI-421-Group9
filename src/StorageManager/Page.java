@@ -3,8 +3,9 @@ package StorageManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.ByteBuffer;
+import java.util.Comparator;
 
-public class Page {
+public class Page implements Comparable<Page> {
 
     private static class Slot {
         int offset;
@@ -31,6 +32,7 @@ public class Page {
     private List<Slot> slots;
     private int freeSpaceEnd;  // grows backward
     private int nextPageID;
+    private long lastAccessTimestamp;
     private boolean isDirty;
 
 
@@ -40,6 +42,13 @@ public class Page {
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
         this.nextPageID = -1;              // -1 means no nextPage
+        touch();
+    }
+
+    // Use whever page is accessed (read or write)
+    // USE WHEN: Loaded in buffer, Record added, Record removed, Record read
+    public void touch() {
+        this.lastAccessTimestamp = System.currentTimeMillis();
     }
 
     // Attempt to add record. Returns true if successful.
@@ -92,6 +101,7 @@ private void copyFromPage(Page source) {
     // Slot constructor is called here
     Slot slot = new Slot(freeSpaceEnd, recordSize);
     slots.add(slot);
+    this.touch();
 }
     // Attempt to remove record. Returns true if successful.
     public boolean removeRecord(int slotIndex) {
@@ -114,6 +124,7 @@ private void copyFromPage(Page source) {
 
         // remove slot
         slots.remove(slotIndex);
+        touch();
 
         return true;
     }
@@ -202,6 +213,7 @@ private void copyFromPage(Page source) {
         int slotCount = slots.size();
 
         int headerSize = Integer.BYTES * 5    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
+                                        + Long.BYTES  // lastAccessTimestamp
                                         + 1;  // dirty Flag
         int slotSectionSize = slotCount * (2 * Integer.BYTES);
         
@@ -216,6 +228,7 @@ private void copyFromPage(Page source) {
         buffer.putInt(freeSpaceEnd);
         buffer.putInt(slotCount);
         buffer.putInt(nextPageID);
+        buffer.putLong(lastAccessTimestamp);
         buffer.put((byte) (isDirty ? 1 : 0));
 
         // Slot directory
@@ -240,11 +253,13 @@ private void copyFromPage(Page source) {
         int freeSpaceEnd = buffer.getInt();
         int slotCount = buffer.getInt();
         int nextPageID = buffer.getInt();
+        long lastAccessTimestamp = buffer.getLong();
         boolean dirty = buffer.get() == 1;
 
         Page page = new Page(pageID,pageSize);
         page.freeSpaceEnd = freeSpaceEnd;
         page.nextPageID = nextPageID;
+        page.lastAccessTimestamp = lastAccessTimestamp;
         page.isDirty = dirty;
 
         // Slots
@@ -257,6 +272,12 @@ private void copyFromPage(Page source) {
         // Data Area
         buffer.get(page.dataArea);
         return page;
+    }
+
+
+    @Override
+    public int compareTo(Page other) {
+        return Long.compare(this.lastAccessTimestamp,other.lastAccessTimestamp);
     }
 
 }
