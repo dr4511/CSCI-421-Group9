@@ -1,8 +1,9 @@
+import Catalog.Catalog;
+import CommandParsers.CommandParser;
 import CommandParsers.Token;
+import java.io.File;
 import java.util.List;
 import java.util.Scanner;
-// import BufferManager.Buffer;
-// import StorageManager.StorageManager;
 
 public class JottQL {
 
@@ -23,7 +24,7 @@ public class JottQL {
         bufferSize = Integer.parseInt(args[2]);
         indexing = Boolean.parseBoolean(args[3]);
 
-        System.out.println("Starting Database...");
+        System.out.println("Welcome to JottQL!");
 
         //========================================================
         // TESTING PRINT STATEMENTS
@@ -36,30 +37,50 @@ public class JottQL {
         // StorageManager.initialize();
         // Buffer.initialize(pageSize, bufferSize);
 
+        String catalogPath = dbLocation + File.separator + "catalog";
+        Catalog catalog;
+
+        try {
+            catalog = Catalog.initialize(catalogPath, pageSize, indexing);
+        } catch (Exception e) {
+            System.out.println("Failed to initialize catalog: " + e.getMessage());
+            return;
+        }
+
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
-            System.out.print("Enter Command > ");
+            System.out.print("JottQL> ");
 
             String firstLine = scanner.nextLine().trim();
 
             if (firstLine.equalsIgnoreCase("<QUIT>")) {
-                System.out.println("Exiting JottQL...");
+                 try {
+                    System.out.println("Purging page buffer...");
+                    // PURGE PAGE BUFFER
+                    // Buffer.shutdown();
+
+                    System.out.println("Writing catalog to hardware...");
+                    catalog.saveToFile(catalogPath);
+
+                    System.out.println("Database saved. Goodbye.");
+                } catch (Exception e) {
+                    System.out.println("Error shutting down: " + e.getMessage());
+                }
+
+                System.out.println("Shutting down the database...");
                 scanner.close();
-                // WRITE CATALOG TO HARDWARE
-                // PURGE PAGE BUFFER
-                // Buffer.shutdown();
                 return;
             }
 
             String command = readRestOfCommand(scanner, firstLine);
+
             try {
                 List<Token> tokens = Token.tokenize(command);
-                for (int i = 0; i < tokens.size(); i++) {
-                    System.out.println(tokens.get(i));
-                }
+                CommandParser parser = new CommandParser(tokens, catalog);
+                parser.parse();
             } catch (Exception e) {
-                e.printStackTrace();
+                System.out.println(e.getMessage());
             }
         }
     }

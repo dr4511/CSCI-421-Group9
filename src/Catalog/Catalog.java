@@ -1,9 +1,8 @@
 package Catalog;
 
+import Common.DataType;
 import java.io.*;
 import java.util.*;
-
-import Common.DataType;
 
 public class Catalog {
 
@@ -13,7 +12,31 @@ public class Catalog {
     private boolean indexing;
     private int lastPageId;
 
-    public Catalog(int pageSize, boolean indexing) {
+    public static Catalog initialize(String catalogPath, int pageSize, boolean indexing) throws Exception {
+        File catalogFile = new File(catalogPath);
+        Catalog catalog;
+
+        System.out.println("Accessing database location...");
+
+        if (catalogFile.exists()) {
+            System.out.println("Database found. Restarting database...");
+            catalog = loadFromFile(catalogPath);
+            System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "...");
+        } else {
+            File parent = catalogFile.getParentFile();
+            if (parent != null &&
+                parent.exists() == false &&
+                parent.mkdirs() == false) {
+                throw new Exception("Failed to create database directory");
+            }
+            
+            catalog = new Catalog(pageSize, indexing);
+            System.out.println("No database found. Creating new database...");
+        }
+        return catalog;
+    }
+
+    private Catalog(int pageSize, boolean indexing) {
         this.tables = new HashMap<>();
         this.freePageListHead = -1;
         this.pageSize = pageSize;
@@ -164,7 +187,7 @@ public class Catalog {
         if (value == null) return;
 
         switch (dataType.getType()) {
-            case INT:
+            case INTEGER:
                 out.writeInt((int) value);
                 break;
             case DOUBLE:
@@ -185,7 +208,7 @@ public class Catalog {
             return null;
 
         switch (dataType.getType()) {
-            case INT:
+            case INTEGER:
                 return in.readInt();
             case DOUBLE:
                 return in.readDouble();

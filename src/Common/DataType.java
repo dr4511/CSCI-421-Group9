@@ -5,7 +5,7 @@ import java.util.Objects;
 public class DataType {
 
     public enum Type {
-        INT, DOUBLE, BOOLEAN, CHAR, VARCHAR
+        INTEGER, DOUBLE, BOOLEAN, CHAR, VARCHAR
     }
 
     private final Type type;
