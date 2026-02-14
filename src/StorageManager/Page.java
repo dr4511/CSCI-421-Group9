@@ -16,16 +16,6 @@ public class Page implements Comparable<Page> {
         }
     }
 
-    private static class SplitResult {
-        Page first;
-        Page second;
-
-        SplitResult(Page first, Page second) {
-        this.first = first;
-        this.second = second;
-        }
-    }
-
     private int pageSize;
     private int pageID;
     private byte[] dataArea;
@@ -51,9 +41,9 @@ public class Page implements Comparable<Page> {
         this.lastAccessTimestamp = System.currentTimeMillis();
     }
 
-    // Attempt to add record. Returns true if successful.
-    // Splits page if not enough space.
-    public boolean addRecord(byte[] record) {
+// Attempt to add record. Returns true if successful.
+// Splits page if not enough space.
+public boolean addRecord(byte[] record) {
     int slotSize = 2 * Integer.BYTES;
     int recordSize = record.length;
 
@@ -62,26 +52,6 @@ public class Page implements Comparable<Page> {
         insertRecordInternal(record); // always calls Slot constructor
         return true;
     }
-
-    SplitResult split = split();
-
-    Page firstPage = split.first;
-    Page secondPage = split.second;
-
-    // Try inserting into first page
-    if (firstPage.getFreeSpace() >= recordSize + slotSize) {
-        firstPage.insertRecordInternal(record);
-        copyFromPage(firstPage);
-        return true;
-    }
-
-    // Try inserting into second page
-    if (secondPage.getFreeSpace() >= recordSize + slotSize) {
-        secondPage.insertRecordInternal(record);
-        copyFromPage(firstPage);
-        return true;
-    }
-
     // Too big for single page
     return false;
 }
@@ -133,10 +103,9 @@ private void copyFromPage(Page source) {
     // SPLIT IN STORAGEMANAGER will call page.split, with two page objects
     // no need to return anything as page's info inside object 
     // MAKE SURE isDirty IS BEING SET and UNSET (unset by buffer right before writing)
-    private SplitResult split() {
+    public Page[] split(Page first, Page second) {
 
-        Page first = new Page(this.pageID,pageSize);
-        Page second = new Page(,pageSize);
+        this.setDirty();
 
         int mid = slots.size() / 2;
 
@@ -156,14 +125,11 @@ private void copyFromPage(Page source) {
             second.insertRecordInternal(record);
         }
 
-        // preserve linked list
-        first.setNextPage(second.pageID);
-        second.setNextPage(this.nextPageID);
+        Page[] result = new Page[2];
+        result[0] = first;
+        result[1] = second;
 
-        // make free page and add to tracking linked list
-        this.slots = []
-
-        return new SplitResult(first, second);
+        return result;
     }
 
 
@@ -196,6 +162,7 @@ private void copyFromPage(Page source) {
 
     public void setNextPage(int next) {
         this.nextPageID = next;
+        this.setDirty();
     }
 
     public boolean hasNextPage() {
@@ -207,6 +174,14 @@ private void copyFromPage(Page source) {
 
     public boolean isDirty() {
         return this.isDirty;
+    }
+
+    public void setDirty() {
+        this.isDirty = true;
+    }
+
+    public void cleanDirty() {
+        this.isDirty = false;
     }
 
     public ByteBuffer serializePage() {

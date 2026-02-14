@@ -51,7 +51,7 @@ public class Buffer {
     public Page getPage(int id) {
         Page inBuffer = this.pagesById.get(id);
         if (inBuffer != null) {
-            onPageAccess(inBuffer);
+            inBuffer.touch();
             return inBuffer;
         }
 
@@ -61,7 +61,7 @@ public class Buffer {
         }
 
         addPageToBuffer(loadedPage);
-        onPageAccess(loadedPage);
+        loadedPage.touch();
         return loadedPage;
     }
 
@@ -86,9 +86,9 @@ public class Buffer {
             catalog.setLastPageId(++newPageId);
         }
         
-        updateTableLastPageLink();
         addPageToBuffer(newPage);
-        onPageAccess(newPage);
+        newPage.touch();
+        newPage.setDirty();
 
         return newPage;
     }
@@ -118,14 +118,18 @@ public class Buffer {
         }
 
         Page[] pageArray = this.pagesById.values().toArray(new Page[0]);
-        Arrays.sort(pageArray, Comparator.comparingLong(this::getLastAccessTimestamp));
+        Arrays.sort(pageArray);
 
         Page evictPage = pageArray[0];
         int evictPageId = evictPage.getPageID();
 
-        writePageToHW(evictPage);
+        if (evictPage.isDirty()){
+            writePageToHW(evictPage);
+        }
         this.pagesById.remove(evictPageId);
     }
+
+    // TODO: write evict all where all pages are evicted from buffer
 
     /**
      * Uses ByteBuffer as the hardware IO boundary.
@@ -140,19 +144,11 @@ public class Buffer {
      */
     private void writePageToHW(Page page) {
         int pageId = page.getPageID();
+        page.cleanDirty();
 
         ByteBuffer rawPageBytes = page.serializePage();
         
         writePageBytesToHW(pageId, rawPageBytes);
-    }
-
-    private void onPageAccess(Page page) {
-        // TODO(team): update page's last-access timestamp inside Page object. delegate to Page.updateLastAccessTimestamp(...) once available.
-    }
-
-    private long getLastAccessTimestamp(Page page) {
-        // TODO(team): return page.getLastAccessTimestamp();
-        throw new UnsupportedOperationException("Page LRU timestamp accessor is not implemented yet.");
     }
 
     private int appendNewPageToHW() {
@@ -172,11 +168,6 @@ public class Buffer {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to append new page to database file.", e);
         }
-    }
-
-    // TODO: Figure out how to implement
-    private void updateTableLastPageLink(Page updatePage, Page newPage) {
-        updatePage.setNextPage(newPage.getPageID());
     }
 
     private ByteBuffer readPageBytesFromHW(int pageId) {
