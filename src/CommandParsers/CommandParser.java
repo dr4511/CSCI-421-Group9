@@ -4,6 +4,7 @@ import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.DataType;
+import java.util.ArrayList;
 import java.util.List;
 
 public class CommandParser {
@@ -149,44 +150,138 @@ public class CommandParser {
     
     // SELECT * FROM <tableName>;
     private void parseSelect() throws Exception {
-        // Pattern p = Pattern.compile(
-        //     "SELECT\\s+\\*\\s+FROM\\s+(\\w+)",
-        //     Pattern.CASE_INSENSITIVE
-        // );
-        // Matcher m = p.matcher(cmd);
-        
-        // if (!m.matches()) {
-        //     return new ParsedCommand(false, "Invalid SELECT syntax. Expected: SELECT * FROM <tableName>");
-        // }
-        
-        // ParsedCommand result = new ParsedCommand(true, "SELECT");
-        // result.tableName = m.group(1);
-        // return result;
-        System.out.println("Selected successfully");
+        expectKeyword("SELECT");
+        expect(Token.Type.STAR);
+        expectKeyword("FROM");
+        String tableName = consumeWord();
+        expectEnd();
+
+        TableSchema table = catalog.getTable(tableName);
+        if (table == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+
+        // read and print records from storage manager
+
+        System.out.println("select test: " + table.getName());
     }
 
     // INSERT <tableName> VALUES ( <row1>, <row2>, ... );
     private void parseInsert() throws Exception {
-        // Pattern p = Pattern.compile(
-        //     "INSERT\\s+(\\w+)\\s+VALUES\\s*\\((.+)\\)",
-        //     Pattern.CASE_INSENSITIVE
-        // );
-        // Matcher m = p.matcher(cmd);
-        
-        // if (!m.matches()) {
-        //     return new ParsedCommand(false, "Invalid INSERT syntax. Expected: INSERT <tableName> VALUES (...)");
-        // }
-        
-        // String tableName = m.group(1);
-        // String valuesStr = m.group(2);
-        
-        // List<String> values = parseValues(valuesStr);
-        
-        // ParsedCommand result = new ParsedCommand(true, "INSERT");
-        // result.tableName = tableName;
-        // result.values = values;
-        // return result;
-        System.out.println("Inserted rows successfully");
+        expectKeyword("INSERT");
+        String tableName = consumeWord();
+
+        TableSchema table = catalog.getTable(tableName);
+        if (table == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+
+        expectKeyword("VALUES");
+        expect(Token.Type.LPAREN);
+
+        List<AttributeSchema> attrs = table.getAttributes();
+        int rowNum = 0;
+        boolean moreRows = true;
+
+        while (moreRows) {
+            // Collect one row of values until ','' or ')'
+            List<Token> rowTokens = new ArrayList<>();
+            while (peek() != null && peek().type != Token.Type.COMMA && peek().type != Token.Type.RPAREN) {
+                rowTokens.add(consume());
+            }
+
+            if (rowTokens.size() != attrs.size()) {
+                throw new Exception("Row " + rowNum + ": expected " + attrs.size() + " values but got " + rowTokens.size());
+            }
+
+            // Validate value type
+            Object[] values = new Object[attrs.size()];
+            for (int i = 0; i < attrs.size(); i++) {
+                values[i] = convertValue(rowTokens.get(i), attrs.get(i));
+            }
+
+            // check primary key uniqueness
+
+            // insert record into storage manager
+
+            rowNum++;
+
+            if (peek() != null && peek().type == Token.Type.COMMA) {
+                consume();
+            } else {
+                moreRows = false;
+            }
+        }
+
+        expect(Token.Type.RPAREN);
+        expectEnd();
+
+        System.out.println("Inserted " + rowNum + " rows successfully");
+    }
+
+    private Object convertValue(Token token, AttributeSchema attr) throws Exception {
+        DataType type = attr.getDataType();
+        String attrName = attr.getName();
+
+        // Handle null
+        if (token.type == Token.Type.WORD && token.value.equalsIgnoreCase("null")) {
+            if (attr.isNotNull()) {
+                throw new Exception("Error: Attribute '" + attrName + "' cannot be null");
+            }
+            return null;
+        }
+
+        // convert Object to its actual type and validate constraints
+        switch (type.getType()) {
+            case INTEGER:
+                if (token.type != Token.Type.NUMBER || token.value.contains(".")) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be an integer value");
+                }
+
+                return Integer.valueOf(token.value);
+
+            case DOUBLE:
+                if (token.type != Token.Type.NUMBER) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be a double value");
+                }
+
+                return Double.valueOf(token.value);
+
+            case BOOLEAN:
+                if (token.type != Token.Type.WORD ||
+                    (token.value.equals("True") == false && token.value.equals("False") == false)) {
+                    String errMsg = "Error: Attribute '" + attrName + "' must be True/False";
+                    if (attr.isNotNull() == false) {
+                        errMsg += " or NULL";
+                    }
+                    throw new Exception(errMsg);
+                }
+
+                return token.value.equals("True");
+
+            case CHAR:
+                if (token.type != Token.Type.STRING) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be a string value");
+                }
+
+                if (token.value.length() > type.getMaxLength()) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be " + type.getMaxLength() + " characters");
+                }
+                return token.value;
+
+            case VARCHAR:
+                if (token.type != Token.Type.STRING) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be a string value");
+                }
+
+                if (token.value.length() > type.getMaxLength()) {
+                    throw new Exception("Error: Attribute '" + attrName + "' must be between 0 and " + type.getMaxLength() + " characters");
+                }
+                return token.value;
+
+            default:
+                throw new Exception("Error: Unknown type for attribute '" + attrName + "'");
+        }
     }
 
     // DROP TABLE <tableName>;

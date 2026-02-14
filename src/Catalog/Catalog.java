@@ -12,30 +12,6 @@ public class Catalog {
     private boolean indexing;
     private int lastPageId;
 
-    public static Catalog initialize(String catalogPath, int pageSize, boolean indexing) throws Exception {
-        File catalogFile = new File(catalogPath);
-        Catalog catalog;
-
-        System.out.println("Accessing database location...");
-
-        if (catalogFile.exists()) {
-            System.out.println("Database found. Restarting database...");
-            catalog = loadFromFile(catalogPath);
-            System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "...");
-        } else {
-            File parent = catalogFile.getParentFile();
-            if (parent != null &&
-                parent.exists() == false &&
-                parent.mkdirs() == false) {
-                throw new Exception("Failed to create database directory");
-            }
-            
-            catalog = new Catalog(pageSize, indexing);
-            System.out.println("No database found. Creating new database...");
-        }
-        return catalog;
-    }
-
     private Catalog(int pageSize, boolean indexing) {
         this.tables = new HashMap<>();
         this.freePageListHead = -1;
@@ -109,7 +85,31 @@ public class Catalog {
         }
     }
 
-    public static Catalog loadFromFile(String path) throws IOException {
+    public static Catalog initialize(String catalogPath, int pageSize, boolean indexing) throws Exception {
+        File catalogFile = new File(catalogPath);
+        Catalog catalog;
+
+        System.out.println("Accessing database location...");
+
+        if (catalogFile.exists()) {
+            System.out.println("Database found. Restarting database...");
+            catalog = loadFromFile(catalogPath);
+            System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "...");
+        } else {
+            File parent = catalogFile.getParentFile();
+            if (parent != null &&
+                parent.exists() == false &&
+                parent.mkdirs() == false) {
+                throw new Exception("Failed to create database directory");
+            }
+            
+            catalog = new Catalog(pageSize, indexing);
+            System.out.println("No database found. Creating new database...");
+        }
+        return catalog;
+    }
+
+    private static Catalog loadFromFile(String path) throws IOException {
         Catalog catalog = new Catalog();
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)))) {
             catalog.pageSize = in.readInt();
