@@ -119,6 +119,9 @@ private void copyFromPage(Page source) {
     }
 
     // Split page due to insufficient space. Does so by creating two new pages and halving data.
+    // SPLIT IN STORAGEMANAGER will call page.split, with two page objects
+    // no need to return anything as page's info inside object 
+    // MAKE SURE isDirty IS BEING SET and UNSET (unset by buffer right before writing)
     private SplitResult split() {
 
         Page first = new Page(this.pageID,pageSize);
