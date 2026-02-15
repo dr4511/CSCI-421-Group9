@@ -1,8 +1,5 @@
 package StorageManager;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 
 import Catalog.AttributeSchema;
@@ -10,11 +7,6 @@ import Catalog.Catalog;
 import Catalog.TableSchema;
 
 public class StorageManager {
-    public enum AlterOperation {
-        ADD,
-        DROP
-    }
-
     // Core dependencies/configuration.
     private final Buffer buffer;
     private final String dbFilePath;
@@ -146,41 +138,7 @@ public class StorageManager {
      * TRICK IS TO JUST CREATE COMPLETELY NEW TABLES
      * COPY OVER ALL THE DATA TO THE NEW TABLES
      */
-    public boolean alterTable(
-        TableSchema table,
-        AlterOperation operation,
-        AttributeSchema addAttribute,
-        String dropAttributeName
-    ) {
-
-        if (operation == AlterOperation.ADD) {
-            if (addAttribute == null) {
-                throw new IllegalArgumentException("addAttribute must be provided for ADD.");
-            }
-
-            boolean added = table.addAttribute(addAttribute);
-            if (!added) {
-                return false;
-            }
-        }
-        else if (operation == AlterOperation.DROP) {
-            if (dropAttributeName == null || dropAttributeName.isBlank()) {
-                throw new IllegalArgumentException("dropAttributeName must be provided for DROP.");
-            }
-
-            AttributeSchema pk = table.getPrimaryKey();
-            if (pk != null && pk.getName().equals(dropAttributeName.toLowerCase())) {
-                return false;
-            }
-
-            boolean dropped = table.dropAttribute(dropAttributeName);
-            if (!dropped) {
-                return false;
-            }
-        } else {
-            throw new IllegalArgumentException("Unsupported alter operation: " + operation);
-        }
-
+    public boolean alterTablePages(TableSchema table, boolean isAlterAdd, Object alterPayload) {
         // Rebuild table pages: create new pages, copy transformed data, relink chain, free old pages.
         int oldHeadPageId = table.getHeadPageId();
         if (oldHeadPageId == -1) {
@@ -199,9 +157,7 @@ public class StorageManager {
             List<byte[]> oldRecords = oldPage.getRecords();
 
             for (byte[] oldRecord : oldRecords) {
-                byte[] rewrittenRecord = rewriteRecordForAlter(
-                    oldRecord, operation, addAttribute, dropAttributeName
-                );
+                byte[] rewrittenRecord = rewriteRecordForAlter(oldRecord, isAlterAdd, alterPayload);
 
                 boolean inserted = newPage.addRecord(rewrittenRecord);
                 if (!inserted) {
@@ -275,5 +231,26 @@ public class StorageManager {
             prev = current;
             current = next;
         }
+    }
+
+    private byte[] rewriteRecordForAlter(
+        byte[] oldRecord,
+        boolean isAlterAdd,
+        Object alterPayload
+    ) {
+        // TODO(team): Replace this placeholder with actual Record usage.
+        // Example add flow:
+        // Record oldRec = Record.fromBytes(oldRecord);
+        // Record newRec = oldRec.alterRecordAdd((AttributeSchema) alterPayload);
+        // return newRec.serialize();
+        //
+        // Example drop flow:
+        // Record oldRec = Record.fromBytes(oldRecord);
+        // Record newRec = oldRec.alterRecordDrop((String) alterPayload);
+        // return newRec.serialize();
+        Object ignoredMode = isAlterAdd;
+        Object ignoredPayload = alterPayload;
+        // RETURN NEW RECORD AFTER ALTER
+        return oldRecord;
     }
 }
