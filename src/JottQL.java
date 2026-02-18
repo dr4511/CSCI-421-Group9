@@ -24,14 +24,34 @@ public class JottQL {
         bufferSize = Integer.parseInt(args[2]);
         indexing = Boolean.parseBoolean(args[3]);
 
+        // Check for / create new dbLocation folder
+        File dbFolder = new File(dbLocation);
+        File dbFile = new File(dbLocation + "\\" + dbLocation);
+        if (!dbFolder.exists()) {
+            dbFolder.mkdir();
+            try {
+                if (dbFile.createNewFile()) {
+                    System.out.println("Created database: " + dbLocation);
+                } else {
+                    System.out.println("Failed to create database: " + dbLocation);
+                    return;
+                }
+            } catch (Exception e) {
+                System.out.println("Failed to create database: " + e.getMessage());
+                return;
+            }
+        } else {
+            System.out.println("Using existing database: " + dbLocation);
+        }
+
         System.out.println("Welcome to JottQL!");
 
         //========================================================
         // TESTING PRINT STATEMENTS
-        System.out.println("DB Location: " + dbLocation);
-        System.out.println("Page Size: " + pageSize);
-        System.out.println("Buffer Size: " + bufferSize);
-        System.out.println("Indexing: " + indexing);
+        // System.out.println("DB Location: " + dbLocation);
+        // System.out.println("Page Size: " + pageSize);
+        // System.out.println("Buffer Size: " + bufferSize);
+        // System.out.println("Indexing: " + indexing);
         //========================================================
 
         // StorageManager.initialize();
