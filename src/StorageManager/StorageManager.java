@@ -1,5 +1,6 @@
 package StorageManager;
 
+import java.io.File;
 import java.util.List;
 
 import Catalog.AttributeSchema;
@@ -10,14 +11,13 @@ import Common.Record;
 public class StorageManager {
     // Core dependencies/configuration.
     private final Buffer buffer;
-    private final String dbFilePath;
     private final int pageSizeBytes;
     private final int bufferSizePages;
     private final Catalog catalog;
 
-    public StorageManager(String dbFilePath, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
-        if (dbFilePath == null || dbFilePath.isBlank()) {
-            throw new IllegalArgumentException("dbFilePath must be non-empty.");
+    public StorageManager(File dbFile, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
+        if (dbFile == null || !dbFile.exists()) {
+            throw new IllegalArgumentException("dbFile must be non-null and exist.");
         }
         if (pageSizeBytes <= 0) {
             throw new IllegalArgumentException("pageSizeBytes must be > 0.");
@@ -29,20 +29,15 @@ public class StorageManager {
             throw new IllegalArgumentException("catalog must be non-null.");
         }
 
-        this.dbFilePath = dbFilePath;
         this.pageSizeBytes = pageSizeBytes;
         this.bufferSizePages =bufferSizePages;
         this.catalog = catalog;
 
-        this.buffer = new Buffer(pageSizeBytes, bufferSizePages, dbFilePath, catalog);
+        this.buffer = new Buffer(pageSizeBytes, bufferSizePages, dbFile, catalog);
     }
 
     public Buffer getBuffer() {
         return this.buffer;
-    }
-
-    public String getDbFilePath() {
-        return this.dbFilePath;
     }
 
     public int getPageSizeBytes() {

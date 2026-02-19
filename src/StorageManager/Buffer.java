@@ -1,5 +1,6 @@
 package StorageManager;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -16,23 +17,23 @@ public class Buffer {
 
     private final int pageSizeBytes;
     private final int capacityPages;
-    private final Path dbFilePath;
+    private final File dbFile;
     private final Catalog catalog;
 
-    public Buffer(int pageSizeBytes, int bufferSizePages, String dbFilePath, Catalog catalog) {
+    public Buffer(int pageSizeBytes, int bufferSizePages, File dbFile, Catalog catalog) {
         if (pageSizeBytes <= 0) {
             throw new IllegalArgumentException("pageSizeBytes must be > 0.");
         }
         if (bufferSizePages <= 0) {
             throw new IllegalArgumentException("bufferSizePages must be > 0.");
         }
-        if (dbFilePath == null || dbFilePath.isBlank()) {
-            throw new IllegalArgumentException("dbFilePath must be non-empty.");
+        if (dbFile == null || !dbFile.exists()) {
+            throw new IllegalArgumentException("dbFile must be non-null and exist.");
         }
 
         this.pageSizeBytes = pageSizeBytes;
         this.capacityPages = bufferSizePages;
-        this.dbFilePath = Path.of(dbFilePath);
+        this.dbFile = dbFile;
         this.pagesById = new HashMap<>(this.capacityPages);
         this.catalog = catalog;
     }
@@ -157,7 +158,7 @@ public class Buffer {
     }
 
     private int appendNewPageToHW() {
-        try (RandomAccessFile raf = new RandomAccessFile(this.dbFilePath.toFile(), "rw");
+        try (RandomAccessFile raf = new RandomAccessFile(dbFile, "rw");
              FileChannel channel = raf.getChannel()) {
 
             int newPageId = catalog.getLastPageId() + 1;
@@ -176,7 +177,7 @@ public class Buffer {
     }
 
     private ByteBuffer readPageBytesFromHW(int pageId) {
-        try (RandomAccessFile raf = new RandomAccessFile(this.dbFilePath.toFile(), "rw");
+        try (RandomAccessFile raf = new RandomAccessFile(dbFile, "rw");
              FileChannel channel = raf.getChannel()) {
 
             long offset = pageOffset(pageId);
@@ -209,7 +210,7 @@ public class Buffer {
     private void writePageBytesToHW(int pageId, ByteBuffer rawPageBytes) {
         ByteBuffer normalizedPageBytes = normalizePageBytes(rawPageBytes);
 
-        try (RandomAccessFile raf = new RandomAccessFile(this.dbFilePath.toFile(), "rw");
+        try (RandomAccessFile raf = new RandomAccessFile(this.dbFile, "rw");
              FileChannel channel = raf.getChannel()) {
 
             long offset = pageOffset(pageId);
