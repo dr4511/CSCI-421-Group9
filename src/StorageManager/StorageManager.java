@@ -92,15 +92,22 @@ public class StorageManager {
     /**
      * INSERT INTO <table> flow.
      */
-    public boolean insertIntoTable(TableSchema table, byte[] recordBytes) {
-        if (recordBytes == null) {
-            throw new IllegalArgumentException("recordBytes must be non-null.");
+    public boolean insertIntoTable(TableSchema table, Object[] values) {
+        if (table == null || values == null) {
+            throw new IllegalArgumentException("table and values must be non-null.");
+        }
+        if (values.length != table.getAttributeCount()) {
+            throw new IllegalArgumentException("Value count does not match table attribute count.");
         }
 
-        // First row in table: allocate first page and set table head.
-        if (table.getHeadPageId() == -1) {
-            Page firstPage = this.buffer.createNewPage();
-            table.setHeadPageId(firstPage.getPageID());
+        Record incomingRecord = new Record(values.clone());
+        int recordSizeBytes = 0;
+        for (AttributeSchema attr : table.getAttributes()) {
+            recordSizeBytes += incomingRecord.calculateAttributeSize(attr, incomingRecord.getValue(table.getAttributes().indexOf(attr)));
+        }
+
+        if (hasPrimaryKeyViolation(table, incomingRecord)) {
+            return false;
         }
 
         int[] lastTwoPagesId = findTailPagesId(table.getHeadPageId());
@@ -109,25 +116,28 @@ public class StorageManager {
 
         Page tailPage = this.buffer.getPage(tailPageId);
 
-        if (recordBytes.length + 2 * Integer.BYTES > tailPage.getFreeSpace()){
-            Page page1 = this.buffer.createNewPage();
-            Page page2 = this.buffer.createNewPage();
-
-            // set page1 nextPage to page2 id
-            page1.setNextPage(page2.getPageID());
-
-            tailPage.split(page1, page2);
-
-            if (beforeTailPageId == -1){
-                table.setHeadPageId(page1.getPageID());
-            } else {
-                updateTablePageLink(beforeTailPageId, page1.getPageID());
-            }
-
+        boolean inserted = tailPage.addRecord(incomingRecord, recordSizeBytes);
+        if (inserted) {
             return true;
         }
 
-        return tailPage.addRecord(recordBytes);
+        Page page1 = this.buffer.createNewPage();
+        Page page2 = this.buffer.createNewPage();
+
+        // set page1 nextPage to page2 id
+        page1.setNextPage(page2.getPageID());
+
+        tailPage.split(page1, page2, recordSizeBytes);
+
+        if (beforeTailPageId == -1){
+            table.setHeadPageId(page1.getPageID());
+        } else {
+            updateTablePageLink(beforeTailPageId, page1.getPageID());
+        }
+
+        freePage(tailPage);
+
+        return page2.addRecord(incomingRecord, recordSizeBytes);
     }
 
     /**
@@ -139,78 +149,34 @@ public class StorageManager {
             throw new IllegalArgumentException("oldTableSchema and newTableSchema must be non-null.");
         }
 
-        // Rebuild table pages: iterate old chain, rewrite each record, and build a new chain.
+        // Rebuild table pages: iterate old chain, rewrite each record, and insert via insertIntoTable.
         int oldHeadPageId = oldTableSchema.getHeadPageId();
+        Page newHeadPage = this.buffer.createNewPage();
+        newHeadPage.setNextPage(-1);
+        newTableSchema.setHeadPageId(newHeadPage.getPageID());
+
         if (oldHeadPageId == -1) {
-            newTableSchema.setHeadPageId(-1);
             return true;
         }
 
         int currentOldPageId = oldHeadPageId;
-        int newHeadPageId = -1;
-        int prevNewPageId = -1;
-        Page currentNewPage = null;
 
         while (currentOldPageId != -1) {
             Page oldPage = this.buffer.getPage(currentOldPageId);
             int nextOldPageId = oldPage.getNextPage();
 
-            List<byte[]> oldRecords = oldPage.getRecords();
+            List<Record> oldRecords = oldPage.getRecords();
 
-            for (byte[] oldRecord : oldRecords) {
-                byte[] rewrittenRecord = rewriteRecordForAlter(
-                    oldRecord,
-                    oldTableSchema,
-                    newTableSchema
-                );
-
-                if (currentNewPage == null) {
-                    currentNewPage = this.buffer.createNewPage();
-                    currentNewPage.setNextPage(-1);
-                    newHeadPageId = currentNewPage.getPageID();
-                    newTableSchema.setHeadPageId(newHeadPageId);
-                }
-
-                boolean inserted = currentNewPage.addRecord(rewrittenRecord);
+            for (Record oldRecord : oldRecords) {
+                Record rewrittenRecord = rewriteRecordForAlter(oldRecord, oldTableSchema, newTableSchema);
+                boolean inserted = insertIntoTable(newTableSchema, rewrittenRecord.getValues());
                 if (!inserted) {
-                    int oldNextFromCurrent = currentNewPage.getNextPage();
-                    Page splitPage1 = this.buffer.createNewPage();
-                    Page splitPage2 = this.buffer.createNewPage();
-                    splitPage1.setNextPage(splitPage2.getPageID());
-                    currentNewPage.split(splitPage1, splitPage2);
-                    splitPage2.setNextPage(oldNextFromCurrent);
-
-                    if (prevNewPageId == -1) {
-                        newTableSchema.setHeadPageId(splitPage1.getPageID());
-                        newHeadPageId = splitPage1.getPageID();
-                    } else {
-                        updateTablePageLink(prevNewPageId, splitPage1.getPageID());
-                    }
-
-                    freePage(currentNewPage);
-
-                    prevNewPageId = splitPage1.getPageID();
-                    currentNewPage = splitPage2;
-
-                    boolean insertedInNewPage = splitPage2.addRecord(rewrittenRecord);
-                    if (!insertedInNewPage) {
-                        throw new IllegalStateException(
-                            "ALTER rebuild failed: rewritten record did not fit in empty new page."
-                        );
-                    }
+                    throw new IllegalStateException("ALTER rebuild failed while inserting rewritten record.");
                 }
             }
 
             freePage(oldPage);
             currentOldPageId = nextOldPageId;
-        }
-
-        // Keep a valid table head if old chain had pages but no records.
-        if (newHeadPageId == -1) {
-            Page emptyHead = this.buffer.createNewPage();
-            emptyHead.setNextPage(-1);
-            newHeadPageId = emptyHead.getPageID();
-            newTableSchema.setHeadPageId(newHeadPageId);
         }
 
         return true;
@@ -270,9 +236,7 @@ public class StorageManager {
         }
     }
 
-    private byte[] rewriteRecordForAlter(byte[] oldRecord, TableSchema oldTable, TableSchema newTable) {
-        // Deserialize using old schema, rebuild using new schema.
-        Record oldRec = Record.fromBytes(oldRecord, oldTable);
+    private Record rewriteRecordForAlter(Record oldRec, TableSchema oldTable, TableSchema newTable) {
         Record newRec = new Record(newTable.getAttributeCount());
 
         for (int newAttrIndex = 0; newAttrIndex < newTable.getAttributeCount(); newAttrIndex++) {
@@ -288,6 +252,40 @@ public class StorageManager {
             newRec.setValue(newAttrIndex, newAttr.getDefaultValue());
         }
 
-        return newRec.toBytes(newTable);
+        return newRec;
+    }
+
+    private boolean hasPrimaryKeyViolation(TableSchema table, Record candidate) {
+        AttributeSchema pk = table.getPrimaryKey();
+        if (pk == null) {
+            return false;
+        }
+
+        int pkIndex = table.getAttributeIndex(pk.getName());
+        if (pkIndex < 0) {
+            return false;
+        }
+
+        Object candidatePkValue = candidate.getValue(pkIndex);
+        if (candidatePkValue == null) {
+            return true;
+        }
+
+        int pageId = table.getHeadPageId();
+        while (pageId != -1) {
+            Page page = this.buffer.getPage(pageId);
+            List<Record> existingRecords = page.getRecords();
+
+            for (Record record : existingRecords) {
+                Object existingPkValue = record.getValue(pkIndex);
+                if (existingPkValue != null && existingPkValue.equals(candidatePkValue)) {
+                    return true;
+                }
+            }
+
+            pageId = page.getNextPage();
+        }
+
+        return false;
     }
 }

@@ -245,7 +245,7 @@ public class CommandParser {
             // check primary key uniqueness
 
             // insert record into storage manager
-            storageManager.insertRecord(table, values);
+            storageManager.insertIntoTable(table, values);
 
             rowNum++;
 

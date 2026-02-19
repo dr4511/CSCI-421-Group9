@@ -131,7 +131,7 @@ public class Record {
     /**
      * Calculate num of bytes needed to store a single attribute value
      */
-    private static int calculateAttributeSize(AttributeSchema attr, Object value) {
+    public int calculateAttributeSize(AttributeSchema attr, Object value) {
         DataType dataType = attr.getDataType();
         switch (dataType.getType()) {
             case INTEGER:

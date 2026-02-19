@@ -2,6 +2,9 @@ package StorageManager;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import Catalog.AttributeSchema;
+
 import java.nio.ByteBuffer;
 import Common.Record;
 
@@ -40,6 +43,7 @@ public class Page implements Comparable<Page> {
         this.records = new ArrayList<Record>();
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
+        this.nextPageID = -1;
         touch();
     }
 
@@ -51,13 +55,12 @@ public class Page implements Comparable<Page> {
 
 // Attempt to add record. Returns true if successful.
 // Splits page if not enough space.
-public boolean addRecord(Record record) {
+public boolean addRecord(Record record, int recordSizeBytes) {
     int slotSize = 2 * Integer.BYTES;
-    int recordSize = record.length; // TODO GET SIZE OF RECORD
 
     // Fits in current page
-    if (getFreeSpace() >= recordSize + slotSize) {
-        insertRecordInternal(record); // always calls Slot constructor
+    if (getFreeSpace() >= recordSizeBytes + slotSize) {
+        insertRecordInternal(record, recordSizeBytes); // always calls Slot constructor
         return true;
     }
     // Too big for single page
@@ -71,8 +74,7 @@ private void copyFromPage(Page source) {
     this.freeSpaceEnd = source.freeSpaceEnd;
     this.nextPageID = source.nextPageID;
 }
-    private void insertRecordInternal(Record record) {
-    int recordSize = record.length; // TODO GET SIZE OF RECORD
+    private void insertRecordInternal(Record record, int recordSize) {
     freeSpaceEnd -= recordSize;
     System.arraycopy(record, 0, records, freeSpaceEnd, recordSize);
 
@@ -111,7 +113,7 @@ private void copyFromPage(Page source) {
     // SPLIT IN STORAGEMANAGER will call page.split, with two page objects
     // no need to return anything as page's info inside object 
     // MAKE SURE isDirty IS BEING SET and UNSET (unset by buffer right before writing)
-    public Page[] split(Page first, Page second) {
+    public Page[] split(Page first, Page second, int incomingRecordSize) {
 
         this.setDirty();
 
@@ -122,7 +124,7 @@ private void copyFromPage(Page source) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
             System.arraycopy(records, s.offset, record, 0, s.length);
-            first.insertRecordInternal(record); // TODO GET SCHEMA
+            first.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
         }
 
         // copy second half
@@ -130,7 +132,7 @@ private void copyFromPage(Page source) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
             System.arraycopy(records, s.offset, record, 0, s.length);
-            second.insertRecordInternal(record); // TODO GET SCHEMA
+            second.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
         }
 
         Page[] result = new Page[2];
@@ -150,14 +152,8 @@ private void copyFromPage(Page source) {
         return slots.size();
     }
 
-    public List<byte[]> getRecords() {
-        List<byte[]> list = new ArrayList<>();
-        for (Slot s : slots) {
-            byte[] rec = new byte[s.length];
-            System.arraycopy(records, s.offset, rec, 0, s.length);
-            list.add(rec);
-        }
-        return list;
+    public List<Record> getRecords() {
+        return this.records;
     }
 
     public int getPageID() {
