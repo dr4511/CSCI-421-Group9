@@ -311,20 +311,21 @@ public class CommandParser {
     }
 
     // DROP TABLE <tableName>;
-    private void parseDropTable() {
-        // Pattern p = Pattern.compile(
-        //     "DROP\\s+TABLE\\s+(\\w+)",
-        //     Pattern.CASE_INSENSITIVE
-        // );
-        // Matcher m = p.matcher(cmd);
+    private void parseDropTable() throws Exception{
+        expectKeyword("DROP");
+        expectKeyword("TABLE");
         
-        // if (!m.matches()) {
-        //     return new ParsedCommand(false, "Invalid DROP syntax. Expected: DROP TABLE <tableName>");
-        // }
-        
-        // ParsedCommand result = new ParsedCommand(true, "DROP");
-        // result.tableName = m.group(1);
-        // return result;
+        // Get tablename, check if exists
+        String tableName = consumeWord();
+        TableSchema oldTable = catalog.getTable(tableName);
+        if (oldTable == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+        expectEnd();
+
+        // Get tableSchema class representing table to drop
+        TableSchema toDrop = catalog.getTable(tableName);
+        storageManager.dropTable(toDrop);
         System.out.println("Table dropped successfully");
     }
 
