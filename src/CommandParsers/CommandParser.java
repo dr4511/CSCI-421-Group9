@@ -92,6 +92,7 @@ public class CommandParser {
         }
 
         storageManager.createTable(table);
+        // catalog.addTable(table);
         System.out.println("Table created successfully");
     }
 
@@ -317,15 +318,13 @@ public class CommandParser {
         
         // Get tablename, check if exists
         String tableName = consumeWord();
-        TableSchema oldTable = catalog.getTable(tableName);
-        if (oldTable == null) {
+        TableSchema table = catalog.getTable(tableName);
+        if (table == null) {
             throw new Exception("No such table: " + tableName);
         }
         expectEnd();
-
-        // Get tableSchema class representing table to drop
-        TableSchema toDrop = catalog.getTable(tableName);
-        storageManager.dropTable(toDrop);
+        
+        storageManager.dropTable(table);
         System.out.println("Table dropped successfully");
     }
 
@@ -347,41 +346,115 @@ public class CommandParser {
         TableSchema newTable;
         if (action.equals("ADD")) {
             newTable = parseAlterAdd(oldTable);
+            System.out.println("Alter add " + oldTable + " to " + newTable); // test
         } else if (action.equals("DROP")) {
             newTable = parseAlterDrop(oldTable);
+            System.out.println("Alter drop " + oldTable + " to " + newTable); // test
         } else {
             throw new Exception("Expected ADD or DROP but got '" + action + "'");
         }
 
         storageManager.alterTablePages(oldTable, newTable);
-        
+        System.out.println("Table altered successfully");
     }
 
     // ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]    
-    private TableSchema parseAlterAdd(TableSchema table) {
-        //rest = rest.trim();
-        // String[] tokens = rest.split("\\s+");
+    private TableSchema parseAlterAdd(TableSchema table) throws Exception {
+        String attrName = consumeWord();
+        DataType dataType = parseDataType();
+        boolean isNN = false;
+        Object defaultValue = null;
+
+        // Consume trailing constraint keywords until end of input.
+        while (peek() != null && peek().type == Token.Type.WORD) {
+            if (peek().value.equals("NOTNULL")) {
+                consume();
+                isNN = true;
+            } else if (peek().value.equals("DEFAULT")) {
+                consume();
+                Token valueToken = consume();
+                defaultValue = convertDefault(valueToken, dataType);
+            } else {
+                break; // not a constraint, end of command
+            }
+        }
+
+        expectEnd();
+
+        if (isNN && defaultValue == null) {
+            throw new Exception("Error: Not null requires a default value when altering a table");
+        }
         
-        // if (tokens.length < 1) return null;
-        
-        // String typeStr = tokens[0];
-        // String type = parseType(typeStr);
-        // if (type == null) return null;
-        
-        // // Check for NOTNULL and DEFAULT
-        // String upper = rest.toUpperCase();
-        // boolean notNull = upper.contains("NOTNULL");
-        // String defaultValue = null;
-        
-        // if (upper.contains("DEFAULT")) {
-        //     // Extract default value
-        //     Pattern p = Pattern.compile("DEFAULT\\s+(.+)", Pattern.CASE_INSENSITIVE);
-        //     Matcher m = p.matcher(rest);
-        //     if (m.find()) {
-        //         defaultValue = m.group(1).trim();
-        //     }
-        // }
-        return null;
+        AttributeSchema newAttr = new AttributeSchema(attrName, dataType, false, isNN, defaultValue);
+        TableSchema newTable = new TableSchema(table);
+
+        if (newTable.addAttribute(newAttr) == false) {
+            throw new Exception("Duplicate attribute name: " + attrName);
+        }
+
+        return newTable;
+    }
+
+    /**
+     * Converts a token to the appropriate Java type for a default value based on the specified data type, and validates constraints.
+     * @param token the token representing the default value to convert
+     * @param type the data type defining the expected type and constraints for the default value
+     * @return the converted default value as an Object of the appropriate Java type
+     */
+    private Object convertDefault(Token token, DataType type) throws Exception {
+        // null 
+        if (token.type == Token.Type.WORD && token.value.equalsIgnoreCase("null")) {
+            return null;
+        }
+
+        // convert Object to its actual type and validate constraints, char must be exact length, varchar must be under max length
+        switch (type.getType()) {
+            case INTEGER:
+                if (token.type != Token.Type.NUMBER || token.value.contains(".")) {
+                    throw new Exception("Error: Default value for INTEGER must be an integer");
+                }
+
+                return Integer.valueOf(token.value);
+
+            case DOUBLE:
+                if (token.type != Token.Type.NUMBER) {
+                    throw new Exception("Error: Default value for DOUBLE must be a double");
+                }
+
+                return Double.valueOf(token.value);
+
+            case BOOLEAN:
+                if (token.type != Token.Type.WORD ||
+                    (token.value.equals("True") == false && token.value.equals("False") == false)) {
+                    throw new Exception("Error: Default value for BOOLEAN must be True or False");
+                }
+
+                return token.value.equals("True");
+
+            case CHAR:
+                if (token.type != Token.Type.STRING) {
+                    throw new Exception("Error: Default value for CHAR must be a string");
+                }
+
+                if (token.value.length() > type.getMaxLength()) {
+                    throw new Exception("Error: Default value for CHAR must be " + type.getMaxLength() + " characters");
+                }
+                return token.value;
+
+            case VARCHAR:
+                if (token.type != Token.Type.STRING) {
+                    throw new Exception("Error: Default value for VARCHAR must be a string");
+                }
+                
+                // Enforce length constraints
+                if (token.value.length() > type.getMaxLength()) {
+                    throw new Exception("Error: Default value for VARCHAR must be between 0 and " + type.getMaxLength() + " characters");
+                }
+                return token.value;
+
+            default:
+                throw new Exception("Error: Unknown data type for default value");
+        }
     }
 
     // ALTER TABLE <tableName> DROP <attrName>

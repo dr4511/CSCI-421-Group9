@@ -39,4 +39,19 @@ public class AttributeSchema {
     public Object getDefaultValue() {
         return defaultValue;
     }
+
+    @Override
+    public String toString() {
+        String dv = (defaultValue == null)
+                ? "null"
+                : (defaultValue instanceof String ? "\"" + defaultValue + "\"" : String.valueOf(defaultValue));
+
+        return "AttributeSchema{" +
+                "name='" + name + '\'' +
+                ", type=" + type +
+                ", primaryKey=" + isPrimaryKey +
+                ", notNull=" + isNotNull +
+                ", defaultValue=" + dv +
+                '}';
+    }
 }

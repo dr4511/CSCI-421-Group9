@@ -9,10 +9,23 @@ public class TableSchema {
     private final List<AttributeSchema> attributes;
     private int headPageId;
 
+    /**
+     * Creates a new TableSchema with the given name and an empty list of attributes.
+     */
     public TableSchema(String tableName) {
         this.name = tableName.toLowerCase();
         this.attributes = new ArrayList<>();
         this.headPageId = -1;
+    }
+
+    /**
+     * Creates a new TableSchema by copying the name, attributes, and headPageId from another TableSchema.
+     * Used when altering tables
+     */
+    public TableSchema(TableSchema other) {
+        this.name = other.name;
+        this.attributes = new ArrayList<>(other.attributes);
+        this.headPageId = other.headPageId;
     }
 
     /**
@@ -111,5 +124,43 @@ public class TableSchema {
      */
     public void setHeadPageId(int pageId) {
         this.headPageId = pageId;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("TableSchema{\n");
+        sb.append("  name='").append(name).append("',\n");
+        sb.append("  headPageId=").append(headPageId).append(",\n");
+        sb.append("  attributes=[").append(attributes.size()).append("]\n");
+
+        if (!attributes.isEmpty()) {
+            sb.append("  -----------------------------------------------------------------\n");
+            sb.append(String.format("  %-3s %-18s %-10s %-3s %-7s %-15s%n",
+                    "#", "name", "type", "PK", "NOTNULL", "default"));
+            sb.append("  -----------------------------------------------------------------\n");
+
+            for (int i = 0; i < attributes.size(); i++) {
+                AttributeSchema a = attributes.get(i);
+                Object dvObj = a.getDefaultValue();
+                String dv = (dvObj == null)
+                        ? "null"
+                        : (dvObj instanceof String ? "\"" + dvObj + "\"" : String.valueOf(dvObj));
+
+                sb.append(String.format("  %-3d %-18s %-10s %-3s %-7s %-15s%n",
+                        i,
+                        a.getName(),
+                        a.getDataType(),
+                        a.isPrimaryKey() ? "Y" : "N",
+                        a.isNotNull() ? "Y" : "N",
+                        dv));
+            }
+        } else {
+            sb.append("  (no attributes)\n");
+        }
+
+        sb.append("}");
+        return sb.toString();
     }
 }
