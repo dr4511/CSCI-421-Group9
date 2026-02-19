@@ -58,7 +58,6 @@ public class JottQL {
         // StorageManager.initialize();
         // Buffer.initialize(pageSize, bufferSize);
 
-        StorageManager storageManager = new StorageManager(dbLocation, pageSize, bufferSize, null);
 
         String catalogPath = dbLocation + File.separator + "catalog";
         Catalog catalog;
@@ -69,6 +68,7 @@ public class JottQL {
             System.out.println("Failed to initialize catalog: " + e.getMessage());
             return;
         }
+        StorageManager storageManager = new StorageManager(dbLocation, pageSize, bufferSize, catalog);
 
         Scanner scanner = new Scanner(System.in);
 
@@ -81,7 +81,7 @@ public class JottQL {
                  try {
                     System.out.println("Purging page buffer...");
                     // PURGE PAGE BUFFER
-                    // Buffer.shutdown();
+                    // storageManager.evictAll();
 
                     System.out.println("Writing catalog to hardware...");
                     catalog.saveToFile(catalogPath);
@@ -100,7 +100,7 @@ public class JottQL {
 
             try {
                 List<Token> tokens = Token.tokenize(command);
-                CommandParser parser = new CommandParser(tokens, catalog);
+                CommandParser parser = new CommandParser(tokens, catalog, storageManager);
                 parser.parse();
             } catch (Exception e) {
                 System.out.println(e.getMessage());

@@ -220,7 +220,7 @@ public class CommandParser {
             // check primary key uniqueness
 
             // insert record into storage manager
-            storageManager.insertRecord(table, values);
+            // storageManager.insertRecord(table, values);
 
             rowNum++;
 
@@ -328,53 +328,36 @@ public class CommandParser {
         System.out.println("Table dropped successfully");
     }
 
-    // ALTER TABLE <tableName> ADD/DROP ...
-    private void parseAlterTable() {
-        // // ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]
-        // Pattern addPattern = Pattern.compile(
-        //     "ALTER\\s+TABLE\\s+(\\w+)\\s+ADD\\s+(\\w+)\\s+(.+)",
-        //     Pattern.CASE_INSENSITIVE
-        // );
+    // ALTER TABLE <tableName> ADD/DROP ... by sending new and old table schema to storage manager
+    private void parseAlterTable() throws Exception{
+        expectKeyword("ALTER");
+        expectKeyword("TABLE");
+
+        String tableName = consumeWord();
+        TableSchema oldTable = catalog.getTable(tableName);
+        if (oldTable == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+
+        // add or drop
+        expect(Token.Type.WORD);
+        String action = tokens.get(pos - 1).value;
+
+        TableSchema newTable;
+        if (action.equals("ADD")) {
+            newTable = parseAlterAdd(oldTable);
+        } else if (action.equals("DROP")) {
+            newTable = parseAlterDrop(oldTable);
+        } else {
+            throw new Exception("Expected ADD or DROP but got '" + action + "'");
+        }
+
+        storageManager.alterTablePages(oldTable, newTable);
         
-        // // ALTER TABLE <tableName> DROP <attrName>
-        // Pattern dropPattern = Pattern.compile(
-        //     "ALTER\\s+TABLE\\s+(\\w+)\\s+DROP\\s+(\\w+)",
-        //     Pattern.CASE_INSENSITIVE
-        // );
-        
-        // Matcher addMatcher = addPattern.matcher(cmd);
-        // Matcher dropMatcher = dropPattern.matcher(cmd);
-        
-        // if (addMatcher.matches()) {
-        //     String tableName = addMatcher.group(1);
-        //     String attrName = addMatcher.group(2);
-        //     String rest = addMatcher.group(3);
-            
-        //     // Parse type and constraints from rest
-        //     Column col = parseAlterAddColumn(attrName, rest);
-        //     if (col == null) {
-        //         return new ParsedCommand(false, "Invalid ALTER TABLE ADD syntax");
-        //     }
-            
-        //     ParsedCommand result = new ParsedCommand(true, "ALTER_ADD");
-        //     result.tableName = tableName;
-        //     result.column = col;
-        //     return result;
-            
-        // } else if (dropMatcher.matches()) {
-        //     ParsedCommand result = new ParsedCommand(true, "ALTER_DROP");
-        //     result.tableName = dropMatcher.group(1);
-        //     result.attrName = dropMatcher.group(2);
-        //     return result;
-            
-        // } else {
-        //     return new ParsedCommand(false, "Invalid ALTER TABLE syntax");
-        // }
-        System.out.println("Table altered successfully");
     }
 
     // ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]    
-    private void parseAlterAdd(TableSchema table) {
+    private TableSchema parseAlterAdd(TableSchema table) {
         //rest = rest.trim();
         // String[] tokens = rest.split("\\s+");
         
@@ -397,11 +380,12 @@ public class CommandParser {
         //         defaultValue = m.group(1).trim();
         //     }
         // }
+        return null;
     }
 
     // ALTER TABLE <tableName> DROP <attrName>
-    private void parseAlterDrop(TableSchema table) {
-        
+    private TableSchema parseAlterDrop(TableSchema table) {
+        return null;
     }
 
     /**

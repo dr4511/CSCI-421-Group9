@@ -12,7 +12,7 @@ public class StorageManager {
     private final Buffer buffer;
     private final String dbFilePath;
     private final int pageSizeBytes;
-    private final int bufferSizeBytes;
+    private final int bufferSizePages;
     private final Catalog catalog;
 
     public StorageManager(String dbFilePath, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
@@ -49,8 +49,8 @@ public class StorageManager {
         return this.pageSizeBytes;
     }
 
-    public int getBufferSizeBytes() {
-        return this.bufferSizeBytes;
+    public int getBufferSizePages() {
+        return this.bufferSizePages;
     }
 
     /**
