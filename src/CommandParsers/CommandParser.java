@@ -221,7 +221,7 @@ public class CommandParser {
             // check primary key uniqueness
 
             // insert record into storage manager
-            // storageManager.insertRecord(table, values);
+            storageManager.insertRecord(table, values);
 
             rowNum++;
 
@@ -354,7 +354,7 @@ public class CommandParser {
             throw new Exception("Error: Expected ADD or DROP but got '" + action + "'");
         }
 
-        // storageManager.alterTablePages(oldTable, newTable);
+        storageManager.alterTablePages(oldTable, newTable);
         System.out.println("Table altered successfully");
     }
 
