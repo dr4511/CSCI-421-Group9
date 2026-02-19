@@ -1,6 +1,7 @@
 import Catalog.Catalog;
 import CommandParsers.CommandParser;
 import CommandParsers.Token;
+import StorageManager.StorageManager;
 import java.io.File;
 import java.util.List;
 import java.util.Scanner;
@@ -26,7 +27,7 @@ public class JottQL {
 
         // Check for / create new dbLocation folder
         File dbFolder = new File(dbLocation);
-        File dbFile = new File(dbLocation + "\\" + dbLocation);
+        File dbFile = new File(dbLocation + File.separator + dbLocation);
         if (!dbFolder.exists()) {
             dbFolder.mkdir();
             try {
@@ -56,6 +57,8 @@ public class JottQL {
 
         // StorageManager.initialize();
         // Buffer.initialize(pageSize, bufferSize);
+
+        StorageManager storageManager = new StorageManager(dbLocation, pageSize, bufferSize, null);
 
         String catalogPath = dbLocation + File.separator + "catalog";
         Catalog catalog;

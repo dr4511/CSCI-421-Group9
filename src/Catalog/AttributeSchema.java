@@ -4,11 +4,11 @@ import Common.DataType;
 
 public class AttributeSchema {
 
-    private String name;
-    private DataType type;
-    private boolean isPrimaryKey;
-    private boolean isNotNull;
-    private Object defaultValue;
+    private final String name;
+    private final DataType type;
+    private final boolean isPrimaryKey;
+    private final boolean isNotNull;
+    private final Object defaultValue;
 
     public AttributeSchema(String name, DataType dataType,
                            boolean isPrimaryKey, boolean isNotNull,

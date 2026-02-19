@@ -12,17 +12,28 @@ public class Catalog {
     private boolean indexing;
     private int lastPageId;
 
-    private Catalog(int pageSize, boolean indexing) {
+    /**
+     * Constructor for loading a catalog from an existing file.
+     */
+    private Catalog(int pageSize, boolean indexing, int freePageListHead, int lastPageId) {
         this.tables = new HashMap<>();
-        this.freePageListHead = -1;
+        this.freePageListHead = freePageListHead;
         this.pageSize = pageSize;
         this.indexing = indexing;
+        this.lastPageId = lastPageId;
     }
 
-    private Catalog() {
-        this.tables = new LinkedHashMap<>();
+    /**
+     * Constructor for creating a new catalog.
+     */
+    private Catalog(int pageSize, boolean indexing) {
+        this(pageSize, indexing, -1, -1);
     }
 
+    /**
+     * Adds a table to the catalog.
+     * @return false if a table with the same name already exists in the catalog.
+     */
     public boolean addTable(TableSchema table) {
         String name = table.getName();
         if (tables.containsKey(name)) {
@@ -32,26 +43,45 @@ public class Catalog {
         return true;
     }
 
+    /**
+     * @return the TableSchema for the table with the given name, or null if no table exists.
+     */
     public TableSchema getTable(String name) {
         return tables.get(name.toLowerCase());
     }
 
+    /**
+     * Removes the table with the given name from the catalog.
+     * @return false if no table with the given name exists in the catalog.
+     */
     public boolean dropTable(String name) {
         return tables.remove(name.toLowerCase()) != null;
     }
 
+    /**
+     * @return true if a table with the given name exists in the catalog, false otherwise.
+     */
     public boolean tableExists(String name) {
         return tables.containsKey(name.toLowerCase());
     }
 
+    /**
+     * @return a list of all tables in the catalog.
+     */
     public List<TableSchema> getAllTables() {
         return tables.values().stream().toList();
     }
 
+    /**
+     * @return the page ID of the head of the free page list, or -1 if the free page list is empty.
+     */
     public int getFreePageListHead() {
         return freePageListHead;
     }
 
+    /**
+     * Sets the page ID of the head of the free page list.
+     */
     public void setFreePageListHead(int pageId) {
         this.freePageListHead = pageId;
     }
@@ -59,6 +89,8 @@ public class Catalog {
     public int getPageSize() {
         return pageSize;
     }
+
+
     public boolean isIndexing() {
         return indexing;
     }
@@ -71,6 +103,9 @@ public class Catalog {
         this.lastPageId = lastPageId;
     }
 
+    /**
+     * Saves the catalog to a file at the given path.
+     */
     public void saveToFile(String path) throws IOException {
         try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(path)))) {
             out.writeInt(pageSize);
@@ -85,6 +120,10 @@ public class Catalog {
         }
     }
 
+    /**
+     * Initializes a Catalog by loading from the file at the given path, or creating a new Catalog if no file exists.
+     * @return the initialized Catalog
+     */
     public static Catalog initialize(String catalogPath, int pageSize, boolean indexing) throws Exception {
         File catalogFile = new File(catalogPath);
         Catalog catalog;
@@ -109,13 +148,18 @@ public class Catalog {
         return catalog;
     }
 
+    /**
+     * Loads a Catalog from the file at the given path.
+     * @return the loaded Catalog
+     */
     private static Catalog loadFromFile(String path) throws IOException {
-        Catalog catalog = new Catalog();
+        Catalog catalog;
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(path)))) {
-            catalog.pageSize = in.readInt();
-            catalog.indexing = in.readBoolean();
-            catalog.freePageListHead = in.readInt();
-            catalog.lastPageId = in.readInt();
+            int pageSize = in.readInt();
+            boolean indexing = in.readBoolean();
+            int freePageListHead = in.readInt();
+            int lastPageId = in.readInt();
+            catalog = new Catalog(pageSize, indexing, freePageListHead, lastPageId);
 
             int tableCount = in.readInt();
             for (int i = 0; i < tableCount; i++) {

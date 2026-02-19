@@ -4,20 +4,27 @@ import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.DataType;
+import StorageManager.StorageManager;
 import java.util.ArrayList;
 import java.util.List;
 
 public class CommandParser {
     private final List<Token> tokens;
-    private final Catalog catalog;
-    private int pos;
+    private int pos;  // current index into the token list
 
-    public CommandParser(List<Token> tokens, Catalog catalog) {
+    private final Catalog catalog;
+    private final StorageManager storageManager;
+
+    public CommandParser(List<Token> tokens, Catalog catalog, StorageManager storageManager) {
         this.tokens = tokens;
         this.catalog = catalog;
+        this.storageManager = storageManager;
         this.pos = 0;
     }
 
+    /**
+     * Inspects the first token and delegates to the matching statement parser.
+     */
     public void parse() throws Exception {
         Token first = peek();
 
@@ -73,6 +80,7 @@ public class CommandParser {
         expect(Token.Type.RPAREN);
         expectEnd();
 
+        // Enforce one primary key across columns
         int pkCount = 0;
         for (AttributeSchema a : table.getAttributes()) {
             if (a.isPrimaryKey()) {
@@ -83,16 +91,20 @@ public class CommandParser {
             throw new Exception("Table must have exactly one PRIMARY KEY");
         }
 
-        catalog.addTable(table);
+        storageManager.createTable(table);
         System.out.println("Table created successfully");
     }
 
+    /**
+     * Parses a single column definition.
+     */
     private void parseAttributeDef(TableSchema table) throws Exception {
         String attrName = consumeWord();
         DataType dataType = parseDataType();
         boolean isPK = false;
         boolean isNN = false;
 
+        // Consume trailing constraint keywords until a comma, closing parenthesis, or end of input.
         while (peek() != null && peek().type == Token.Type.WORD) {
             Token t = peek();
             if (t != null && t.type == Token.Type.WORD) {
@@ -104,7 +116,7 @@ public class CommandParser {
                     consume();
                     isNN = true;
                 } else {
-                    break;
+                    break; // not a constraint, next column def
                 }
             }
         }
@@ -115,6 +127,10 @@ public class CommandParser {
         }
     }
 
+    /**
+     * Parses a data type definition.
+     * @return the parsed DataType object
+     */
     private DataType parseDataType() throws Exception {
         String typeName = consumeWord();
 
@@ -161,7 +177,7 @@ public class CommandParser {
             throw new Exception("No such table: " + tableName);
         }
 
-        // read and print records from storage manager
+        storageManager.selectAllTable(table);
 
         System.out.println("select test: " + table.getName());
     }
@@ -190,6 +206,7 @@ public class CommandParser {
                 rowTokens.add(consume());
             }
 
+            // Column count must match schema
             if (rowTokens.size() != attrs.size()) {
                 throw new Exception("Row " + rowNum + ": expected " + attrs.size() + " values but got " + rowTokens.size());
             }
@@ -203,9 +220,11 @@ public class CommandParser {
             // check primary key uniqueness
 
             // insert record into storage manager
+            storageManager.insertRecord(table, values);
 
             rowNum++;
 
+            // Advance past comma to next row, or stop at closing paren
             if (peek() != null && peek().type == Token.Type.COMMA) {
                 consume();
             } else {
@@ -219,6 +238,11 @@ public class CommandParser {
         System.out.println("Inserted " + rowNum + " rows successfully");
     }
 
+    /**
+     * Converts a token to the appropriate Java type based on the attribute schema, and validates constraints.
+     * @param token the token representing the value to convert
+     * @param attr the attribute schema defining the expected type and constraints
+     */
     private Object convertValue(Token token, AttributeSchema attr) throws Exception {
         DataType type = attr.getDataType();
         String attrName = attr.getName();
@@ -264,6 +288,7 @@ public class CommandParser {
                     throw new Exception("Error: Attribute '" + attrName + "' must be a string value");
                 }
 
+                // CHAR enforces an exact max length
                 if (token.value.length() > type.getMaxLength()) {
                     throw new Exception("Error: Attribute '" + attrName + "' must be " + type.getMaxLength() + " characters");
                 }
@@ -274,6 +299,7 @@ public class CommandParser {
                     throw new Exception("Error: Attribute '" + attrName + "' must be a string value");
                 }
 
+                // VARCHAR enforces an upper limit on length
                 if (token.value.length() > type.getMaxLength()) {
                     throw new Exception("Error: Attribute '" + attrName + "' must be between 0 and " + type.getMaxLength() + " characters");
                 }
@@ -378,6 +404,9 @@ public class CommandParser {
         
     }
 
+    /**
+     * @return the next token without consuming it, or null if at end of input
+     */
     private Token peek() {
         if (pos >= tokens.size())
             return null;
@@ -385,6 +414,9 @@ public class CommandParser {
         return tokens.get(pos);
     }
 
+    /**
+     * @return the next token and advances the position.
+     */
     private Token consume() throws Exception {
         if (pos >= tokens.size()) {
             throw new Exception("Unexpected end of command");
@@ -393,6 +425,9 @@ public class CommandParser {
         return tokens.get(pos++);
     }
 
+    /**
+     * @return the next token if it is a word matching the expected keyword, and advances the position.
+     */
     private void expectKeyword(String keyword) throws Exception {
         Token t = consume();
         if (t.type != Token.Type.WORD || t.value.equals(keyword) == false) {
@@ -400,6 +435,9 @@ public class CommandParser {
         }
     }
 
+    /**
+     * @return the next token if it matches the expected type, and advances the position.
+     */
     private void expect(Token.Type type) throws Exception {
         Token t = consume();
         if (t.type != type) {
@@ -407,6 +445,9 @@ public class CommandParser {
         }
     }
 
+    /**
+     * @return the next token if it is a word, and advances the position.
+     */
     private String consumeWord() throws Exception {
         Token t = consume();
         if (t.type != Token.Type.WORD) {
@@ -416,6 +457,9 @@ public class CommandParser {
         return t.value;
     }
 
+    /**
+     * @return true if there are no more tokens after the current position, false otherwise.
+     */
     private void expectEnd() throws Exception {
         if (pos < tokens.size()) {
             throw new Exception("Unexpected token after command: '" + tokens.get(pos).value + "'");
