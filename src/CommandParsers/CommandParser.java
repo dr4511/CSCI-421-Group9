@@ -88,7 +88,7 @@ public class CommandParser {
             }
         }
         if (pkCount != 1) {
-            throw new Exception("Table must have exactly one PRIMARY KEY");
+            throw new Exception("Error: Table must have exactly one PRIMARY KEY");
         }
 
         storageManager.createTable(table);
@@ -124,7 +124,7 @@ public class CommandParser {
 
         AttributeSchema attr = new AttributeSchema(attrName, dataType, isPK, isNN, null);
         if (table.addAttribute(attr) == false) {
-            throw new Exception("Duplicate attribute name: " + attrName);
+            throw new Exception("Error: Attribute name already exists");
         }
     }
 
@@ -148,12 +148,12 @@ public class CommandParser {
 
                 Token n = consume();
                 if (n.type != Token.Type.NUMBER || n.value.contains(".")) {
-                    throw new Exception("Expected integer size for " + typeName);
+                    throw new Exception("Error: Expected integer size for " + typeName);
                 }
 
                 int size = Integer.parseInt(n.value);
                 if (size <= 0) {
-                    throw new Exception(typeName + " size must be positive");
+                    throw new Exception("Error: " + typeName + " size must be positive");
                 }
 
                 expect(Token.Type.RPAREN);
@@ -161,7 +161,7 @@ public class CommandParser {
                 return new DataType(dataType, size);
             }
             default:
-                throw new Exception("Unknown data type: " + typeName);
+                throw new Exception("Error: Unknown data type: " + typeName);
         }
     }
     
@@ -180,7 +180,7 @@ public class CommandParser {
 
         storageManager.selectAllTable(table);
 
-        System.out.println("select test: " + table.getName());
+        System.out.println("select test: " + table);
     }
 
     // INSERT <tableName> VALUES ( <row1>, <row2>, ... );
@@ -209,7 +209,7 @@ public class CommandParser {
 
             // Column count must match schema
             if (rowTokens.size() != attrs.size()) {
-                throw new Exception("Row " + rowNum + ": expected " + attrs.size() + " values but got " + rowTokens.size());
+                throw new Exception("Error: Row " + rowNum + ": expected " + attrs.size() + " values but got " + rowTokens.size());
             }
 
             // Validate value type
@@ -351,10 +351,10 @@ public class CommandParser {
             newTable = parseAlterDrop(oldTable);
             System.out.println("Alter drop " + oldTable + " to " + newTable); // test
         } else {
-            throw new Exception("Expected ADD or DROP but got '" + action + "'");
+            throw new Exception("Error: Expected ADD or DROP but got '" + action + "'");
         }
 
-        storageManager.alterTablePages(oldTable, newTable);
+        // storageManager.alterTablePages(oldTable, newTable);
         System.out.println("Table altered successfully");
     }
 
@@ -389,7 +389,7 @@ public class CommandParser {
         TableSchema newTable = new TableSchema(table);
 
         if (newTable.addAttribute(newAttr) == false) {
-            throw new Exception("Duplicate attribute name: " + attrName);
+            throw new Exception("Error: Attribute name already exists");
         }
 
         return newTable;
@@ -458,8 +458,25 @@ public class CommandParser {
     }
 
     // ALTER TABLE <tableName> DROP <attrName>
-    private TableSchema parseAlterDrop(TableSchema table) {
-        return null;
+    private TableSchema parseAlterDrop(TableSchema table) throws Exception{
+        String attrName = consumeWord();
+        expectEnd();
+
+        // prevent dropping primary key
+        AttributeSchema attr = table.getAttribute(attrName);
+        if (attr == null) {
+            throw new Exception("Error: No such attribute: " + attrName);
+        }
+        if (attr.isPrimaryKey()) {
+            throw new Exception("Error: Cannot drop primary key attribute");
+        }
+
+        TableSchema newTable = new TableSchema(table);
+        if (newTable.dropAttribute(attrName) == false) {
+            throw new Exception("Error: No such attribute: " + attrName);
+        }
+
+        return newTable;
     }
 
     /**

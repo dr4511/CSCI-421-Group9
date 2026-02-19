@@ -3,6 +3,7 @@ import CommandParsers.CommandParser;
 import CommandParsers.Token;
 import StorageManager.StorageManager;
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Scanner;
 
@@ -78,17 +79,19 @@ public class JottQL {
             String firstLine = scanner.nextLine().trim();
 
             if (firstLine.equalsIgnoreCase("<QUIT>")) {
-                 try {
+                try {
                     System.out.println("Purging page buffer...");
                     // PURGE PAGE BUFFER
                     storageManager.evictAll();
+                } catch (Exception e) {
+                    System.out.println("Error purging page buffer: " + e.getMessage());
+                }
 
+                try {
                     System.out.println("Writing catalog to hardware...");
                     catalog.saveToFile(catalogPath);
-
-                    System.out.println("Database saved. Goodbye.");
-                } catch (Exception e) {
-                    System.out.println("Error shutting down: " + e.getMessage());
+                } catch (IOException e) {
+                    System.out.println("Error saving catalog: " + e.getMessage());
                 }
 
                 System.out.println("Shutting down the database...");
