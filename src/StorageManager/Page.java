@@ -3,6 +3,7 @@ package StorageManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.nio.ByteBuffer;
+import Common.Record;
 
 public class Page implements Comparable<Page> {
 
@@ -17,7 +18,7 @@ public class Page implements Comparable<Page> {
 
     private int pageSize;
     private int pageID;
-    private byte[] dataArea;
+    private ArrayList<Record> records;
     private List<Slot> slots;
     private int freeSpaceEnd;  // grows backward
     private int nextPageID;
@@ -27,7 +28,7 @@ public class Page implements Comparable<Page> {
 
     public Page(int pageID, int pageSize) {
         this.pageSize = pageSize;
-        this.dataArea = new byte[pageSize];
+        this.records = new ArrayList<Record>();
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
         this.nextPageID = -1;              // -1 means no nextPage
@@ -36,7 +37,7 @@ public class Page implements Comparable<Page> {
 
     // Removes all data from page
     public void cleanData(){
-        this.dataArea = new byte[pageSize];
+        this.records = new ArrayList<Record>();
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
         touch();
@@ -50,9 +51,9 @@ public class Page implements Comparable<Page> {
 
 // Attempt to add record. Returns true if successful.
 // Splits page if not enough space.
-public boolean addRecord(byte[] record) {
+public boolean addRecord(Record record) {
     int slotSize = 2 * Integer.BYTES;
-    int recordSize = record.length;
+    int recordSize = record.length; // TODO GET SIZE OF RECORD
 
     // Fits in current page
     if (getFreeSpace() >= recordSize + slotSize) {
@@ -65,15 +66,15 @@ public boolean addRecord(byte[] record) {
 
 // Helper to copy data and slots from another page (after split)
 private void copyFromPage(Page source) {
-    this.dataArea = source.dataArea;
+    this.records = source.records;
     this.slots = source.slots;
     this.freeSpaceEnd = source.freeSpaceEnd;
     this.nextPageID = source.nextPageID;
 }
-    private void insertRecordInternal(byte[] record) {
-    int recordSize = record.length;
+    private void insertRecordInternal(Record record) {
+    int recordSize = record.length; // TODO GET SIZE OF RECORD
     freeSpaceEnd -= recordSize;
-    System.arraycopy(record, 0, dataArea, freeSpaceEnd, recordSize);
+    System.arraycopy(record, 0, records, freeSpaceEnd, recordSize);
 
     // Slot constructor is called here
     Slot slot = new Slot(freeSpaceEnd, recordSize);
@@ -96,7 +97,7 @@ private void copyFromPage(Page source) {
             }
         }
 
-        System.arraycopy(dataArea, 0, dataArea, shiftAmount, start);
+        System.arraycopy(records, 0, records, shiftAmount, start);
         freeSpaceEnd += length;
 
         // remove slot
@@ -120,16 +121,16 @@ private void copyFromPage(Page source) {
         for (int i = 0; i < mid; i++) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
-            System.arraycopy(dataArea, s.offset, record, 0, s.length);
-            first.insertRecordInternal(record);
+            System.arraycopy(records, s.offset, record, 0, s.length);
+            first.insertRecordInternal(record); // TODO GET SCHEMA
         }
 
         // copy second half
         for (int i = mid; i < slots.size(); i++) {
             Slot s = slots.get(i);
             byte[] record = new byte[s.length];
-            System.arraycopy(dataArea, s.offset, record, 0, s.length);
-            second.insertRecordInternal(record);
+            System.arraycopy(records, s.offset, record, 0, s.length);
+            second.insertRecordInternal(record); // TODO GET SCHEMA
         }
 
         Page[] result = new Page[2];
@@ -153,7 +154,7 @@ private void copyFromPage(Page source) {
         List<byte[]> list = new ArrayList<>();
         for (Slot s : slots) {
             byte[] rec = new byte[s.length];
-            System.arraycopy(dataArea, s.offset, rec, 0, s.length);
+            System.arraycopy(records, s.offset, rec, 0, s.length);
             list.add(rec);
         }
         return list;
@@ -220,7 +221,9 @@ private void copyFromPage(Page source) {
         }
 
         // Data area
-        buffer.put(dataArea);
+        for(Record record : records){
+            buffer.put(record.toBytes()); // GET SCHEMA PASSED IN
+        }
 
         buffer.flip();
         return buffer;
@@ -251,8 +254,13 @@ private void copyFromPage(Page source) {
             page.slots.add(new Slot(offset, length));
         }
 
+        page.records = new ArrayList<Record>();
         // Data Area
-        buffer.get(page.dataArea);
+        for(int i = 0; i < slotCount;i++){
+            int numBytes = page.slots.get(i).length;
+            Record newRecord = Record.fromBytes(buffer.get(numBytes), null); // TODO GET SCHEMA PASSED IN
+            page.records.add(newRecord); 
+        }
         return page;
     }
 
