@@ -56,7 +56,16 @@ public class CommandParser {
         }
     }
 
-    // CREATE TABLE <tableName> ( <attr> <type> <constraints>, ... );
+    /**
+     * Parses a CREATE TABLE statement of the form:
+     * CREATE TABLE <tableName> (
+     *   <attrName> <dataType> [PRIMARY KEY] [NOT NULL],
+     *  ...
+     * );
+     * 
+     * Validates that the table does not already exist, attribute names are unique,
+     * data types are valid, and that there is one primary key.
+     */
     private void parseCreateTable() throws Exception {
         expectKeyword("CREATE");
         expectKeyword("TABLE");
@@ -98,6 +107,8 @@ public class CommandParser {
 
     /**
      * Parses a single column definition.
+     * 
+     * Example: id INTEGER PRIMARYKEY, name VARCHAR(50) NOTNULL, age INTEGER
      */
     private void parseAttributeDef(TableSchema table) throws Exception {
         String attrName = consumeWord();
@@ -165,7 +176,13 @@ public class CommandParser {
         }
     }
     
-    // SELECT * FROM <tableName>;
+    /**
+     * Parses a SELECT statement of the form:
+     * SELECT * FROM <tableName>;
+     * 
+     * Validates that the table exists, then retrieves all records
+     * from the storage manager and prints them.
+     */
     private void parseSelect() throws Exception {
         expectKeyword("SELECT");
         expect(Token.Type.STAR);
@@ -183,7 +200,14 @@ public class CommandParser {
         System.out.println("select test: " + table);
     }
 
-    // INSERT <tableName> VALUES ( <row1>, <row2>, ... );
+    /**
+     * Parses an INSERT statement of the form:
+     * INSERT <tableName> VALUES ( <value1>, <value2>, ... );
+     * 
+     * Validates that the number of values matches the table schema,
+     * and that each value can be converted to the appropriate Java type
+     * based on the attribute schema. Also checks NOT NULL constraints.
+     */
     private void parseInsert() throws Exception {
         expectKeyword("INSERT");
         String tableName = consumeWord();
@@ -311,7 +335,13 @@ public class CommandParser {
         }
     }
 
-    // DROP TABLE <tableName>;
+    /**
+     * Parses a DROP TABLE statement of the form:
+     * DROP TABLE <tableName>;
+     * 
+     * Validates that the table exists, then deletes the table
+     * from the catalog and storage manager.
+     */
     private void parseDropTable() throws Exception{
         expectKeyword("DROP");
         expectKeyword("TABLE");
@@ -329,6 +359,17 @@ public class CommandParser {
     }
 
     // ALTER TABLE <tableName> ADD/DROP ... by sending new and old table schema to storage manager
+
+    /**
+     * Parses an ALTER TABLE statement of the form:
+     * ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]
+     * ALTER TABLE <tableName> DROP <attrName>
+     * 
+     * Validates that the table exists, the attribute to add or drop is valid
+     * based on the table schema, and then constructs a new TableSchema with
+     * the added or dropped attribute and sends it to the storage manager to
+     * update the table pages.
+     */
     private void parseAlterTable() throws Exception{
         expectKeyword("ALTER");
         expectKeyword("TABLE");
@@ -359,6 +400,16 @@ public class CommandParser {
     }
 
     // ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]    
+
+    /**
+     * Parses an ALTER TABLE ADD statement, which has the form:
+     * ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]
+     *
+     * Validates that the attribute name does not already exist in the table
+     * schema, the data type is valid, and that if NOTNULL is specified then a
+     * DEFAULT value is also provided. Then constructs and returns a new
+     * TableSchema with the new attribute added.
+     */
     private TableSchema parseAlterAdd(TableSchema table) throws Exception {
         String attrName = consumeWord();
         DataType dataType = parseDataType();
@@ -457,7 +508,14 @@ public class CommandParser {
         }
     }
 
-    // ALTER TABLE <tableName> DROP <attrName>
+    /**
+     * Parses an ALTER TABLE DROP statement, which has the form:
+     * ALTER TABLE <tableName> DROP <attrName>
+     * 
+     * Validates that the attribute exists in the table schema and is not a
+     * primary key, then constructs and returns a new TableSchema with the
+     * attribute removed.
+     */
     private TableSchema parseAlterDrop(TableSchema table) throws Exception{
         String attrName = consumeWord();
         expectEnd();
