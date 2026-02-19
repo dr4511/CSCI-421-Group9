@@ -5,6 +5,7 @@ import java.util.List;
 import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
+import Common.Record;
 
 public class StorageManager {
     // Core dependencies/configuration.
@@ -138,46 +139,83 @@ public class StorageManager {
      * TRICK IS TO JUST CREATE COMPLETELY NEW TABLES
      * COPY OVER ALL THE DATA TO THE NEW TABLES
      */
-    public boolean alterTablePages(TableSchema table, boolean isAlterAdd, Object alterPayload) {
-        // Rebuild table pages: create new pages, copy transformed data, relink chain, free old pages.
-        int oldHeadPageId = table.getHeadPageId();
+    public boolean alterTablePages(TableSchema oldTableSchema, TableSchema newTableSchema) {
+        if (oldTableSchema == null || newTableSchema == null) {
+            throw new IllegalArgumentException("oldTableSchema and newTableSchema must be non-null.");
+        }
+
+        // Rebuild table pages: iterate old chain, rewrite each record, and build a new chain.
+        int oldHeadPageId = oldTableSchema.getHeadPageId();
         if (oldHeadPageId == -1) {
+            newTableSchema.setHeadPageId(-1);
             return true;
         }
 
         int currentOldPageId = oldHeadPageId;
         int newHeadPageId = -1;
-        int newPrevPageId = -1;
+        int prevNewPageId = -1;
+        Page currentNewPage = null;
 
         while (currentOldPageId != -1) {
             Page oldPage = this.buffer.getPage(currentOldPageId);
             int nextOldPageId = oldPage.getNextPage();
 
-            Page newPage = this.buffer.createNewPage();
             List<byte[]> oldRecords = oldPage.getRecords();
 
             for (byte[] oldRecord : oldRecords) {
-                byte[] rewrittenRecord = rewriteRecordForAlter(oldRecord, isAlterAdd, alterPayload);
+                byte[] rewrittenRecord = rewriteRecordForAlter(
+                    oldRecord,
+                    oldTableSchema,
+                    newTableSchema
+                );
 
-                boolean inserted = newPage.addRecord(rewrittenRecord);
+                if (currentNewPage == null) {
+                    currentNewPage = this.buffer.createNewPage();
+                    currentNewPage.setNextPage(-1);
+                    newHeadPageId = currentNewPage.getPageID();
+                    newTableSchema.setHeadPageId(newHeadPageId);
+                }
+
+                boolean inserted = currentNewPage.addRecord(rewrittenRecord);
                 if (!inserted) {
-                    throw new IllegalStateException(
-                        "ALTER rebuild failed: rewritten record did not fit in new page."
-                    );
+                    int oldNextFromCurrent = currentNewPage.getNextPage();
+                    Page splitPage1 = this.buffer.createNewPage();
+                    Page splitPage2 = this.buffer.createNewPage();
+                    splitPage1.setNextPage(splitPage2.getPageID());
+                    currentNewPage.split(splitPage1, splitPage2);
+                    splitPage2.setNextPage(oldNextFromCurrent);
+
+                    if (prevNewPageId == -1) {
+                        newTableSchema.setHeadPageId(splitPage1.getPageID());
+                        newHeadPageId = splitPage1.getPageID();
+                    } else {
+                        updateTablePageLink(prevNewPageId, splitPage1.getPageID());
+                    }
+
+                    freePage(currentNewPage);
+
+                    prevNewPageId = splitPage1.getPageID();
+                    currentNewPage = splitPage2;
+
+                    boolean insertedInNewPage = splitPage2.addRecord(rewrittenRecord);
+                    if (!insertedInNewPage) {
+                        throw new IllegalStateException(
+                            "ALTER rebuild failed: rewritten record did not fit in empty new page."
+                        );
+                    }
                 }
             }
 
-            if (newHeadPageId == -1) {
-                newHeadPageId = newPage.getPageID();
-                table.setHeadPageId(newHeadPageId);
-            } else {
-                updateTablePageLink(newPrevPageId, newPage.getPageID());
-            }
-
-            newPrevPageId = newPage.getPageID();
-
             freePage(oldPage);
             currentOldPageId = nextOldPageId;
+        }
+
+        // Keep a valid table head if old chain had pages but no records.
+        if (newHeadPageId == -1) {
+            Page emptyHead = this.buffer.createNewPage();
+            emptyHead.setNextPage(-1);
+            newHeadPageId = emptyHead.getPageID();
+            newTableSchema.setHeadPageId(newHeadPageId);
         }
 
         return true;
@@ -233,24 +271,24 @@ public class StorageManager {
         }
     }
 
-    private byte[] rewriteRecordForAlter(
-        byte[] oldRecord,
-        boolean isAlterAdd,
-        Object alterPayload
-    ) {
-        // TODO(team): Replace this placeholder with actual Record usage.
-        // Example add flow:
-        // Record oldRec = Record.fromBytes(oldRecord);
-        // Record newRec = oldRec.alterRecordAdd((AttributeSchema) alterPayload);
-        // return newRec.serialize();
-        //
-        // Example drop flow:
-        // Record oldRec = Record.fromBytes(oldRecord);
-        // Record newRec = oldRec.alterRecordDrop((String) alterPayload);
-        // return newRec.serialize();
-        Object ignoredMode = isAlterAdd;
-        Object ignoredPayload = alterPayload;
-        // RETURN NEW RECORD AFTER ALTER
-        return oldRecord;
+    private byte[] rewriteRecordForAlter(byte[] oldRecord, TableSchema oldTable, TableSchema newTable) {
+        // Deserialize using old schema, rebuild using new schema.
+        Record oldRec = Record.fromBytes(oldRecord, oldTable);
+        Record newRec = new Record(newTable.getAttributeCount());
+
+        for (int newAttrIndex = 0; newAttrIndex < newTable.getAttributeCount(); newAttrIndex++) {
+            AttributeSchema newAttr = newTable.getAttributes().get(newAttrIndex);
+            int oldAttrIndex = oldTable.getAttributeIndex(newAttr.getName());
+
+            if (oldAttrIndex != -1) {
+                newRec.setValue(newAttrIndex, oldRec.getValue(oldAttrIndex));
+                continue;
+            }
+
+            // Attribute exists only in new schema (ADD case): use default/null.
+            newRec.setValue(newAttrIndex, newAttr.getDefaultValue());
+        }
+
+        return newRec.toBytes(newTable);
     }
 }

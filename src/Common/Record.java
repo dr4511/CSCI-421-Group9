@@ -1,10 +1,8 @@
-package common;
+package Common;
 
 import Catalog.TableSchema;
 import Catalog.AttributeSchema;
-import Common.DataType;
 import java.nio.ByteBuffer;
-import StorageManager.Buffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
