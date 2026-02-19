@@ -15,15 +15,15 @@ public class StorageManager {
     private final int bufferSizeBytes;
     private final Catalog catalog;
 
-    public StorageManager(String dbFilePath, int pageSizeBytes, int bufferSizeBytes, Catalog catalog) {
+    public StorageManager(String dbFilePath, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
         if (dbFilePath == null || dbFilePath.isBlank()) {
             throw new IllegalArgumentException("dbFilePath must be non-empty.");
         }
         if (pageSizeBytes <= 0) {
             throw new IllegalArgumentException("pageSizeBytes must be > 0.");
         }
-        if (bufferSizeBytes <= 0) {
-            throw new IllegalArgumentException("bufferSizeBytes must be > 0.");
+        if (bufferSizePages <= 0) {
+            throw new IllegalArgumentException("bufferSizePages must be > 0.");
         }
         if (catalog == null) {
             throw new IllegalArgumentException("catalog must be non-null.");
@@ -31,10 +31,10 @@ public class StorageManager {
 
         this.dbFilePath = dbFilePath;
         this.pageSizeBytes = pageSizeBytes;
-        this.bufferSizeBytes = bufferSizeBytes;
+        this.bufferSizePages =bufferSizePages;
         this.catalog = catalog;
 
-        this.buffer = new Buffer(pageSizeBytes, bufferSizeBytes, dbFilePath, catalog);
+        this.buffer = new Buffer(pageSizeBytes, bufferSizePages, dbFilePath, catalog);
     }
 
     public Buffer getBuffer() {
@@ -244,6 +244,10 @@ public class StorageManager {
 
             currFreePageId = nextPageId;
         }
+    }
+
+    public void evictAll() {
+        this.buffer.evictAll();
     }
 
     /**

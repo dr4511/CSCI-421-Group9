@@ -19,26 +19,19 @@ public class Buffer {
     private final Path dbFilePath;
     private final Catalog catalog;
 
-    public Buffer(int pageSizeBytes, int bufferSizeBytes, String dbFilePath, Catalog catalog) {
+    public Buffer(int pageSizeBytes, int bufferSizePages, String dbFilePath, Catalog catalog) {
         if (pageSizeBytes <= 0) {
             throw new IllegalArgumentException("pageSizeBytes must be > 0.");
         }
-        if (bufferSizeBytes <= 0) {
-            throw new IllegalArgumentException("bufferSizeBytes must be > 0.");
+        if (bufferSizePages <= 0) {
+            throw new IllegalArgumentException("bufferSizePages must be > 0.");
         }
         if (dbFilePath == null || dbFilePath.isBlank()) {
             throw new IllegalArgumentException("dbFilePath must be non-empty.");
         }
 
-        int computedCapacity = bufferSizeBytes / pageSizeBytes;
-        if (computedCapacity <= 0) {
-            throw new IllegalArgumentException(
-                "bufferSizeBytes must be >= pageSizeBytes so at least one page fits in buffer."
-            );
-        }
-
         this.pageSizeBytes = pageSizeBytes;
-        this.capacityPages = computedCapacity;
+        this.capacityPages = bufferSizePages;
         this.dbFilePath = Path.of(dbFilePath);
         this.pagesById = new HashMap<>(this.capacityPages);
         this.catalog = catalog;
