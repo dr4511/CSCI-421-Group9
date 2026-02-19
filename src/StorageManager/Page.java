@@ -76,7 +76,7 @@ private void copyFromPage(Page source) {
 }
     private void insertRecordInternal(Record record, int recordSize) {
     freeSpaceEnd -= recordSize;
-    System.arraycopy(record, 0, records, freeSpaceEnd, recordSize);
+    this.records.add(record);
 
     // Slot constructor is called here
     Slot slot = new Slot(freeSpaceEnd, recordSize);
@@ -99,7 +99,7 @@ private void copyFromPage(Page source) {
             }
         }
 
-        System.arraycopy(records, 0, records, shiftAmount, start);
+        records.remove(slotIndex);  // TODO verify data and slots are aligned after removal
         freeSpaceEnd += length;
 
         // remove slot
@@ -121,17 +121,15 @@ private void copyFromPage(Page source) {
 
         // copy first half
         for (int i = 0; i < mid; i++) {
-            Slot s = slots.get(i);
-            byte[] record = new byte[s.length];
-            System.arraycopy(records, s.offset, record, 0, s.length);
+            Slot s = slots.get(i); // IS THIS NEEDED
+            Record record = records.get(i);
             first.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
         }
 
         // copy second half
         for (int i = mid; i < slots.size(); i++) {
-            Slot s = slots.get(i);
-            byte[] record = new byte[s.length];
-            System.arraycopy(records, s.offset, record, 0, s.length);
+            Slot s = slots.get(i);  // IS THIS NEEDED
+            Record record = records.get(i);
             second.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
         }
 
@@ -218,7 +216,7 @@ private void copyFromPage(Page source) {
 
         // Data area
         for(Record record : records){
-            buffer.put(record.toBytes()); // GET SCHEMA PASSED IN
+            buffer.put(record.toBytes()); // TODO GET SCHEMA PASSED IN
         }
 
         buffer.flip();
