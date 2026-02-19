@@ -34,6 +34,14 @@ public class Page implements Comparable<Page> {
         touch();
     }
 
+    // Removes all data from page
+    public void cleanData(){
+        this.dataArea = new byte[pageSize];
+        this.slots = new ArrayList<>();
+        this.freeSpaceEnd = pageSize;
+        touch();
+    }
+
     // Use whever page is accessed (read or write)
     // USE WHEN: Loaded in buffer, Record added, Record removed, Record read
     public void touch() {
