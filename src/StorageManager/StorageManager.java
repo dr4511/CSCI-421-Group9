@@ -1,6 +1,7 @@
 package StorageManager;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 import Catalog.AttributeSchema;
@@ -59,19 +60,22 @@ public class StorageManager {
 
     /**
      * SELECT * FROM <table> flow.
-     * Reads pages one by one via buffer and returns raw row bytes in traversal order.
+     * Reads pages one by one via buffer and prints SQL-style table output.
      */
     public void selectAllTable(TableSchema table) {
-        int currPageId = table.getHeadPageId();
-        while (true) {
-            Page page = this.buffer.getPage(currPageId);
-            // print page
-            int nextPageId = page.getNextPage();
-            if (nextPageId == -1){
-                break;
-            }
-            currPageId = nextPageId;
+        if (table == null) {
+            throw new IllegalArgumentException("table must be non-null.");
         }
+
+        List<Record> rows = new ArrayList<>();
+        int currPageId = table.getHeadPageId();
+        while (currPageId != -1) {
+            Page page = this.buffer.getPage(currPageId);
+            rows.addAll(page.getRecords());
+            currPageId = page.getNextPage();
+        }
+
+        printSelectRows(table, rows);
     }
 
     /**
@@ -288,4 +292,71 @@ public class StorageManager {
 
         return false;
     }
+
+    private void printSelectRows(TableSchema table, List<Record> rows) {
+        int columnCount = table.getAttributeCount();
+        if (columnCount == 0) {
+            System.out.println("(no columns)");
+            System.out.println(rows.size() + " row(s)");
+            return;
+        }
+
+        int[] widths = new int[columnCount];
+        for (int i = 0; i < columnCount; i++) {
+            widths[i] = table.getAttributes().get(i).getName().length();
+        }
+
+        for (Record row : rows) {
+            for (int i = 0; i < columnCount; i++) {
+                String cell = formatSelectCell(row.getValue(i));
+                if (cell.length() > widths[i]) {
+                    widths[i] = cell.length();
+                }
+            }
+        }
+
+        String border = buildSelectBorder(widths);
+        System.out.println(border);
+        System.out.println(buildSelectHeader(table, widths));
+        System.out.println(border);
+        for (Record row : rows) {
+            System.out.println(buildSelectRow(row, widths));
+        }
+        System.out.println(border);
+        System.out.println(rows.size() + " row(s)");
+    }
+
+    private String buildSelectBorder(int[] widths) {
+        StringBuilder sb = new StringBuilder("+");
+        for (int width : widths) {
+            sb.append("-".repeat(width + 2)).append("+");
+        }
+        return sb.toString();
+    }
+
+    private String buildSelectHeader(TableSchema table, int[] widths) {
+        StringBuilder sb = new StringBuilder("|");
+        for (int i = 0; i < widths.length; i++) {
+            String header = table.getAttributes().get(i).getName();
+            sb.append(" ").append(String.format("%-" + widths[i] + "s", header)).append(" |");
+        }
+        return sb.toString();
+    }
+
+    private String buildSelectRow(Record row, int[] widths) {
+        StringBuilder sb = new StringBuilder("|");
+        for (int i = 0; i < widths.length; i++) {
+            String cell = formatSelectCell(row.getValue(i));
+            sb.append(" ").append(String.format("%-" + widths[i] + "s", cell)).append(" |");
+        }
+        return sb.toString();
+    }
+
+    private String formatSelectCell(Object value) {
+        if (value == null) {
+            return "NULL";
+        }
+        return String.valueOf(value);
+    }
+
 }
