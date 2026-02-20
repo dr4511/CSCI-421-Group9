@@ -67,13 +67,6 @@ public boolean addRecord(Record record, int recordSizeBytes) {
     return false;
 }
 
-// Helper to copy data and slots from another page (after split)
-private void copyFromPage(Page source) {
-    this.records = source.records;
-    this.slots = source.slots;
-    this.freeSpaceEnd = source.freeSpaceEnd;
-    this.nextPageID = source.nextPageID;
-}
     private void insertRecordInternal(Record record, int recordSize) {
     freeSpaceEnd -= recordSize;
     this.records.add(record);
@@ -123,14 +116,14 @@ private void copyFromPage(Page source) {
         for (int i = 0; i < mid; i++) {
             Slot s = slots.get(i); // IS THIS NEEDED
             Record record = records.get(i);
-            first.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
+            first.insertRecordInternal(record, incomingRecordSize); 
         }
 
         // copy second half
         for (int i = mid; i < slots.size(); i++) {
             Slot s = slots.get(i);  // IS THIS NEEDED
             Record record = records.get(i);
-            second.insertRecordInternal(record, incomingRecordSize); // TODO GET SCHEMA
+            second.insertRecordInternal(record, incomingRecordSize); 
         }
 
         Page[] result = new Page[2];
@@ -193,11 +186,13 @@ private void copyFromPage(Page source) {
                                         + Long.BYTES  // lastAccessTimestamp
                                         + 1;  // dirty Flag
         int slotSectionSize = slotCount * (2 * Integer.BYTES);
-        
-        int totalSize = headerSize + slotSectionSize;
+        int dataSize = 0;
+        for(int i = 0; i < slotCount;i++){
+            dataSize += slots.get(i).length;
+        }
 
 
-        ByteBuffer buffer = ByteBuffer.allocate(totalSize);
+        ByteBuffer buffer = ByteBuffer.allocate(pageSize);
 
         // Header
         buffer.putInt(pageID);
