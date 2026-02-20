@@ -7,6 +7,7 @@ import Catalog.AttributeSchema;
 
 import java.nio.ByteBuffer;
 import Common.Record;
+import Catalog.TableSchema;
 
 public class Page implements Comparable<Page> {
 
@@ -179,17 +180,17 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         this.isDirty = false;
     }
 
-    public ByteBuffer serializePage() {
+    public ByteBuffer serializePage(TableSchema schema) {
         int slotCount = slots.size();
 
-        int headerSize = Integer.BYTES * 5    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
-                                        + Long.BYTES  // lastAccessTimestamp
-                                        + 1;  // dirty Flag
-        int slotSectionSize = slotCount * (2 * Integer.BYTES);
-        int dataSize = 0;
-        for(int i = 0; i < slotCount;i++){
-            dataSize += slots.get(i).length;
-        }
+        //int headerSize = Integer.BYTES * 5    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
+        //                                + Long.BYTES  // lastAccessTimestamp
+        //                                + 1;  // dirty Flag
+        //int slotSectionSize = slotCount * (2 * Integer.BYTES);
+        //int dataSize = 0;
+       // for(int i = 0; i < slotCount;i++){
+       //     dataSize += slots.get(i).length;
+        //}
 
 
         ByteBuffer buffer = ByteBuffer.allocate(pageSize);
@@ -211,14 +212,14 @@ public boolean addRecord(Record record, int recordSizeBytes) {
 
         // Data area
         for(Record record : records){
-            buffer.put(record.toBytes()); // TODO GET SCHEMA PASSED IN
+            buffer.put(record.toBytes(schema));
         }
 
         buffer.flip();
         return buffer;
     }
 
-    public static Page deserializePage(ByteBuffer buffer) {
+    public static Page deserializePage(ByteBuffer buffer, TableSchema schema) {
         buffer.rewind();
 
         // Header
@@ -247,7 +248,9 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         // Data Area
         for(int i = 0; i < slotCount;i++){
             int numBytes = page.slots.get(i).length;
-            Record newRecord = Record.fromBytes(buffer.get(numBytes), null); // TODO GET SCHEMA PASSED IN
+            byte[] destArray = new byte[numBytes];
+            buffer.get(0,destArray);
+            Record newRecord = Record.fromBytes(destArray,schema); 
             page.records.add(newRecord); 
         }
         return page;
