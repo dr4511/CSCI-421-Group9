@@ -67,8 +67,9 @@ public class Buffer {
         Integer freePageId = catalog.getFreePageListHead();
         if (freePageId != -1) {
             Page freePage = readPageFromHW(freePageId);
-            // update free pages (dont forget setting Catalog heaD)
-            // handle in storage manager for free page tracking?
+            int nextFreePageId = freePage.getNextPage();
+            catalog.setFreePageListHead(nextFreePageId);
+            freePage.setNextPage(-1);
             newPage = freePage;
             newPageId = freePage.getPageID();
         } else {
