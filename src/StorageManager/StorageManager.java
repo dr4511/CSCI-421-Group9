@@ -91,6 +91,7 @@ public class StorageManager {
             freePage(page);
             currPageId = nextPageId;
         }
+        catalog.dropTable(table.getName());
     }
 
     /**
@@ -179,10 +180,11 @@ public class StorageManager {
                 }
             }
 
-            freePage(oldPage);
             currentOldPageId = nextOldPageId;
         }
-
+        
+        dropTable(oldTableSchema);
+        catalog.addTable(newTableSchema);
         return true;
     }
 
