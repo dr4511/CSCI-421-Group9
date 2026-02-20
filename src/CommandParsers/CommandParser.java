@@ -197,7 +197,7 @@ public class CommandParser {
 
         storageManager.selectAllTable(table);
 
-        System.out.println("select test: " + table);
+        // System.out.println("select test: " + table);
     }
 
     /**
@@ -387,19 +387,15 @@ public class CommandParser {
         TableSchema newTable;
         if (action.equals("ADD")) {
             newTable = parseAlterAdd(oldTable);
-            System.out.println("Alter add " + oldTable + " to " + newTable); // test
         } else if (action.equals("DROP")) {
             newTable = parseAlterDrop(oldTable);
-            System.out.println("Alter drop " + oldTable + " to " + newTable); // test
         } else {
             throw new Exception("Error: Expected ADD or DROP but got '" + action + "'");
         }
 
         storageManager.alterTablePages(oldTable, newTable);
-        System.out.println("Table altered successfully");
-    }
-
-    // ALTER TABLE <tableName> ADD <attrName> <type> [NOTNULL] [DEFAULT <value>]    
+        // System.out.println("Table altered successfully");
+    }  
 
     /**
      * Parses an ALTER TABLE ADD statement, which has the form:

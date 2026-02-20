@@ -28,7 +28,7 @@ public class JottQL {
 
         // Check for / create new dbLocation folder
         File dbFolder = new File(dbLocation);
-        File dbFile = new File(dbLocation + File.separator + dbLocation);
+        File dbFile = new File(dbLocation + File.separator + "db");
         if (!dbFolder.exists()) {
             dbFolder.mkdir();
             try {
