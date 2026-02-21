@@ -3,11 +3,7 @@ package StorageManager;
 import java.util.ArrayList;
 import java.util.List;
 
-import Catalog.AttributeSchema;
-
 import java.nio.ByteBuffer;
-import Common.Record;
-import Catalog.TableSchema;
 
 public class Page implements Comparable<Page> {
 
@@ -22,7 +18,7 @@ public class Page implements Comparable<Page> {
 
     private int pageSize;
     private int pageID;
-    private ArrayList<Record> records;
+    private ArrayList<byte[]> records;
     private List<Slot> slots;
     private int freeSpaceEnd;  // grows backward
     private int nextPageID;
@@ -31,8 +27,9 @@ public class Page implements Comparable<Page> {
 
 
     public Page(int pageID, int pageSize) {
+        this.pageID = pageID;
         this.pageSize = pageSize;
-        this.records = new ArrayList<Record>();
+        this.records = new ArrayList<byte[]>();
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
         this.nextPageID = -1;              // -1 means no nextPage
@@ -41,7 +38,7 @@ public class Page implements Comparable<Page> {
 
     // Removes all data from page
     public void cleanData(){
-        this.records = new ArrayList<Record>();
+        this.records = new ArrayList<byte[]>();
         this.slots = new ArrayList<>();
         this.freeSpaceEnd = pageSize;
         this.nextPageID = -1;
@@ -54,29 +51,31 @@ public class Page implements Comparable<Page> {
         this.lastAccessTimestamp = System.currentTimeMillis();
     }
 
-// Attempt to add record. Returns true if successful.
-// Splits page if not enough space.
-public boolean addRecord(Record record, int recordSizeBytes) {
-    int slotSize = 2 * Integer.BYTES;
+    // Attempt to add record. Returns true if successful.
+    // Splits page if not enough space.
+    public boolean addRecord(byte[] data) {
+        int slotSize = 2 * Integer.BYTES;
 
-    // Fits in current page
-    if (getFreeSpace() >= recordSizeBytes + slotSize) {
-        insertRecordInternal(record, recordSizeBytes); // always calls Slot constructor
-        return true;
+        // Fits in current page
+        if (getFreeSpace() >= data.length + slotSize) {
+            insertRecordInternal(data); // always calls Slot constructor
+            return true;
+        }
+        // Too big for single page
+        return false;
     }
-    // Too big for single page
-    return false;
-}
 
-    private void insertRecordInternal(Record record, int recordSize) {
-    freeSpaceEnd -= recordSize;
-    this.records.add(record);
+    private void insertRecordInternal(byte[] data) {
+        freeSpaceEnd -= data.length;
+        this.records.add(data);
 
-    // Slot constructor is called here
-    Slot slot = new Slot(freeSpaceEnd, recordSize);
-    slots.add(slot);
-    this.touch();
-}
+        // Slot constructor is called here
+        Slot slot = new Slot(freeSpaceEnd, data.length);
+        slots.add(slot);
+        this.setDirty();
+        this.touch();
+    }
+
     // Attempt to remove record. Returns true if successful.
     public boolean removeRecord(int slotIndex) {
         if (slotIndex < 0 || slotIndex >= slots.size()) return false;
@@ -107,7 +106,7 @@ public boolean addRecord(Record record, int recordSizeBytes) {
     // SPLIT IN STORAGEMANAGER will call page.split, with two page objects
     // no need to return anything as page's info inside object 
     // MAKE SURE isDirty IS BEING SET and UNSET (unset by buffer right before writing)
-    public Page[] split(Page first, Page second, int incomingRecordSize) {
+    public Page[] split(Page first, Page second) {
 
         this.setDirty();
 
@@ -116,15 +115,15 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         // copy first half
         for (int i = 0; i < mid; i++) {
             Slot s = slots.get(i); // IS THIS NEEDED
-            Record record = records.get(i);
-            first.insertRecordInternal(record, incomingRecordSize); 
+            byte[] record = records.get(i);
+            first.addRecord(record); 
         }
 
         // copy second half
         for (int i = mid; i < slots.size(); i++) {
             Slot s = slots.get(i);  // IS THIS NEEDED
-            Record record = records.get(i);
-            second.insertRecordInternal(record, incomingRecordSize); 
+            byte[] record = records.get(i);
+            second.addRecord(record);
         }
 
         Page[] result = new Page[2];
@@ -144,7 +143,7 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         return slots.size();
     }
 
-    public List<Record> getRecords() {
+    public List<byte[]> getRecords() {
         return this.records;
     }
 
@@ -180,7 +179,7 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         this.isDirty = false;
     }
 
-    public ByteBuffer serializePage(TableSchema schema) {
+    public ByteBuffer serializePage() {
         int slotCount = slots.size();
 
         //int headerSize = Integer.BYTES * 5    // pageSize, freeSpaceEnd, slotCount, slotCount, nextPageID
@@ -211,15 +210,15 @@ public boolean addRecord(Record record, int recordSizeBytes) {
         }
 
         // Data area
-        for(Record record : records){
-            buffer.put(record.toBytes(schema));
+        for(byte[] record : records){
+            buffer.put(record);
         }
 
         buffer.flip();
         return buffer;
     }
 
-    public static Page deserializePage(ByteBuffer buffer, TableSchema schema) {
+    public static Page deserializePage(ByteBuffer buffer) {
         buffer.rewind();
 
         // Header
@@ -244,14 +243,13 @@ public boolean addRecord(Record record, int recordSizeBytes) {
             page.slots.add(new Slot(offset, length));
         }
 
-        page.records = new ArrayList<Record>();
+        page.records = new ArrayList<byte[]>();
         // Data Area
         for(int i = 0; i < slotCount;i++){
             int numBytes = page.slots.get(i).length;
             byte[] destArray = new byte[numBytes];
-            buffer.get(0,destArray);
-            Record newRecord = Record.fromBytes(destArray,schema); 
-            page.records.add(newRecord); 
+            buffer.get(destArray);
+            page.records.add(destArray); 
         }
         return page;
     }

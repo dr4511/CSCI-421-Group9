@@ -27,49 +27,44 @@ public class JottQL {
         indexing = Boolean.parseBoolean(args[3]);
 
         // Check for / create new dbLocation folder
-        File dbFolder = new File(dbLocation);
-        File dbFile = new File(dbLocation + File.separator + "db");
-        if (!dbFolder.exists()) {
-            dbFolder.mkdir();
-            try {
-                if (dbFile.createNewFile()) {
-                    System.out.println("Created database: " + dbLocation);
-                } else {
-                    System.out.println("Failed to create database: " + dbLocation);
-                    return;
-                }
-            } catch (Exception e) {
-                System.out.println("Failed to create database: " + e.getMessage());
-                return;
-            }
-        } else {
-            System.out.println("Using existing database: " + dbLocation);
-        }
-
         System.out.println("Welcome to JottQL!");
 
-        //========================================================
-        // TESTING PRINT STATEMENTS
-        // System.out.println("DB Location: " + dbLocation);
-        // System.out.println("Page Size: " + pageSize);
-        // System.out.println("Buffer Size: " + bufferSize);
-        // System.out.println("Indexing: " + indexing);
-        //========================================================
-
-        // StorageManager.initialize();
-        // Buffer.initialize(pageSize, bufferSize);
-
-
         String catalogPath = dbLocation + File.separator + "catalog";
-        Catalog catalog;
+        File dbFolder = new File(dbLocation);
+        File dbFile = new File(dbLocation + File.separator + "db");
+        File catalogFile = new File(catalogPath);
 
+        System.out.println("Accessing database location....");
+
+        if (catalogFile.exists()) {
+            System.out.println("Database found. Restarting database....");
+        } else {
+            System.out.println("No database found. Creating new database....");
+            if (!dbFolder.exists()) {
+                dbFolder.mkdir();
+            }
+            if (!dbFile.exists()) {
+                try {
+                    dbFile.createNewFile();
+                } catch (Exception e) {
+                    System.out.println("Failed to create database: " + e.getMessage());
+                    return;
+                }
+            }
+        }
+
+        Catalog catalog;
         try {
             catalog = Catalog.initialize(catalogPath, pageSize, indexing);
         } catch (Exception e) {
             System.out.println("Failed to initialize catalog: " + e.getMessage());
             return;
         }
-        StorageManager storageManager = new StorageManager(dbFile, pageSize, bufferSize, catalog);
+
+        if (catalogFile.exists() && catalog.getPageSize() != pageSize) {
+            System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "....");
+        }
+        StorageManager storageManager = new StorageManager(dbFile, catalog.getPageSize(), bufferSize, catalog);
 
         Scanner scanner = new Scanner(System.in);
 

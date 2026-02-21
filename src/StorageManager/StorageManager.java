@@ -1,13 +1,11 @@
 package StorageManager;
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-
 import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.Record;
+import java.io.File;
+import java.util.List;
 
 public class StorageManager {
     // Core dependencies/configuration.
@@ -67,15 +65,52 @@ public class StorageManager {
             throw new IllegalArgumentException("table must be non-null.");
         }
 
-        List<Record> rows = new ArrayList<>();
+        int columnCount = table.getAttributeCount();
+        if (columnCount == 0) {
+            System.out.println("(no columns)");
+            return;
+        }
+
+        // Caluclate column widths first
+        int[] widths = new int[columnCount];
+        for (int i = 0; i < columnCount; i++) {
+            widths[i] = table.getAttributes().get(i).getName().length();
+        }
+
+        int totalRows = 0;
         int currPageId = table.getHeadPageId();
-        while (currPageId != -1) {
+        while (currPageId != -1) { // iterate every page
             Page page = this.buffer.getPage(currPageId);
-            rows.addAll(page.getRecords());
+            for (byte[] data : page.getRecords()) { // iterate every record in page
+                Record record = Record.fromBytes(data, table);
+                for (int i = 0; i < columnCount; i++) { // iterate every cell in record
+                    int cellWidth = formatSelectCell(record.getValue(i)).length();
+                    if (cellWidth > widths[i]) {
+                        widths[i] = cellWidth;
+                    }
+                }
+                totalRows++;
+            }
             currPageId = page.getNextPage();
         }
 
-        printSelectRows(table, rows);
+        // print pages, should be in cache from LRU
+        String border = buildSelectBorder(widths);
+        System.out.println(border);
+        System.out.println(buildSelectHeader(table, widths));
+        System.out.println(border);
+
+        currPageId = table.getHeadPageId();
+        while (currPageId != -1) {
+            Page page = this.buffer.getPage(currPageId);
+            for (byte[] data : page.getRecords()) {
+                Record record = Record.fromBytes(data, table);
+                System.out.println(buildSelectRow(record, widths));
+            }
+            currPageId = page.getNextPage();
+        }
+
+        System.out.println(border);
     }
 
     /**
@@ -92,6 +127,7 @@ public class StorageManager {
             currPageId = nextPageId;
         }
         catalog.dropTable(table.getName());
+        catalog.dropTable(table.getName());
     }
 
     /**
@@ -106,10 +142,7 @@ public class StorageManager {
         }
 
         Record incomingRecord = new Record(values.clone());
-        int recordSizeBytes = 0;
-        for (AttributeSchema attr : table.getAttributes()) {
-            recordSizeBytes += incomingRecord.calculateAttributeSize(attr, incomingRecord.getValue(table.getAttributes().indexOf(attr)));
-        }
+        byte[] recordBytes = incomingRecord.toBytes(table);
 
         if (hasPrimaryKeyViolation(table, incomingRecord)) {
             return false;
@@ -121,7 +154,7 @@ public class StorageManager {
 
         Page tailPage = this.buffer.getPage(tailPageId);
 
-        boolean inserted = tailPage.addRecord(incomingRecord, recordSizeBytes);
+        boolean inserted = tailPage.addRecord(recordBytes);
         if (inserted) {
             return true;
         }
@@ -132,7 +165,7 @@ public class StorageManager {
         // set page1 nextPage to page2 id
         page1.setNextPage(page2.getPageID());
 
-        tailPage.split(page1, page2, recordSizeBytes);
+        tailPage.split(page1, page2);
 
         if (beforeTailPageId == -1){
             table.setHeadPageId(page1.getPageID());
@@ -142,7 +175,7 @@ public class StorageManager {
 
         freePage(tailPage);
 
-        return page2.addRecord(incomingRecord, recordSizeBytes);
+        return page2.addRecord(recordBytes);
     }
 
     /**
@@ -170,9 +203,8 @@ public class StorageManager {
             Page oldPage = this.buffer.getPage(currentOldPageId);
             int nextOldPageId = oldPage.getNextPage();
 
-            List<Record> oldRecords = oldPage.getRecords();
-
-            for (Record oldRecord : oldRecords) {
+            for (byte[] data : oldPage.getRecords()) {
+                Record oldRecord = Record.fromBytes(data, oldTableSchema);
                 Record rewrittenRecord = rewriteRecordForAlter(oldRecord, oldTableSchema, newTableSchema);
                 boolean inserted = insertIntoTable(newTableSchema, rewrittenRecord.getValues());
                 if (!inserted) {
@@ -182,9 +214,10 @@ public class StorageManager {
 
             currentOldPageId = nextOldPageId;
         }
-        
-        dropTable(oldTableSchema);
+
+        catalog.dropTable(oldTableSchema.getName());
         catalog.addTable(newTableSchema);
+
         return true;
     }
 
@@ -280,9 +313,8 @@ public class StorageManager {
         int pageId = table.getHeadPageId();
         while (pageId != -1) {
             Page page = this.buffer.getPage(pageId);
-            List<Record> existingRecords = page.getRecords();
-
-            for (Record record : existingRecords) {
+            for (byte[] data : page.getRecords()) {
+                Record record = Record.fromBytes(data, table);
                 Object existingPkValue = record.getValue(pkIndex);
                 if (existingPkValue != null && existingPkValue.equals(candidatePkValue)) {
                     return true;
@@ -299,7 +331,6 @@ public class StorageManager {
         int columnCount = table.getAttributeCount();
         if (columnCount == 0) {
             System.out.println("(no columns)");
-            System.out.println(rows.size() + " row(s)");
             return;
         }
 
@@ -325,7 +356,6 @@ public class StorageManager {
             System.out.println(buildSelectRow(row, widths));
         }
         System.out.println(border);
-        System.out.println(rows.size() + " row(s)");
     }
 
     private String buildSelectBorder(int[] widths) {

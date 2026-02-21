@@ -126,26 +126,19 @@ public class Catalog {
      */
     public static Catalog initialize(String catalogPath, int pageSize, boolean indexing) throws Exception {
         File catalogFile = new File(catalogPath);
-        Catalog catalog;
-
-        System.out.println("Accessing database location...");
 
         if (catalogFile.exists()) {
-            System.out.println("Database found. Restarting database...");
-            catalog = loadFromFile(catalogPath);
-            System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "...");
-        } else {
-            File parent = catalogFile.getParentFile();
-            if (parent != null &&
-                parent.exists() == false &&
-                parent.mkdirs() == false) {
-                throw new Exception("Failed to create database directory");
-            }
-            
-            catalog = new Catalog(pageSize, indexing);
-            System.out.println("No database found. Creating new database...");
+            return loadFromFile(catalogPath);
         }
-        return catalog;
+
+        File parent = catalogFile.getParentFile();
+        if (parent != null &&
+            parent.exists() == false &&
+            parent.mkdirs() == false) {
+            throw new Exception("Failed to create database directory");
+        }
+
+        return new Catalog(pageSize, indexing);
     }
 
     /**

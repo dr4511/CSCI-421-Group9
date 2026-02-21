@@ -223,6 +223,7 @@ public class CommandParser {
         List<AttributeSchema> attrs = table.getAttributes();
         int rowNum = 0;
         boolean moreRows = true;
+        String insertError = null;
 
         while (moreRows) {
             // Collect one row of values until ','' or ')'
@@ -238,14 +239,19 @@ public class CommandParser {
 
             // Validate value type
             Object[] values = new Object[attrs.size()];
-            for (int i = 0; i < attrs.size(); i++) {
-                values[i] = convertValue(rowTokens.get(i), attrs.get(i));
+            try {
+                for (int i = 0; i < attrs.size(); i++) {
+                    values[i] = convertValue(rowTokens.get(i), attrs.get(i));
+                }
+            } catch (Exception e) {
+                insertError = e.getMessage() + ": " + formatRowTokens(rowTokens);
+                break;
             }
 
-            // check primary key uniqueness
-
-            // insert record into storage manager
-            storageManager.insertIntoTable(table, values);
+            if (storageManager.insertIntoTable(table, values) == false) {
+                insertError = "Error: duplicate primary key value: " + formatRowTokens(rowTokens);
+                break;
+            }
 
             rowNum++;
 
@@ -257,8 +263,12 @@ public class CommandParser {
             }
         }
 
-        expect(Token.Type.RPAREN);
-        expectEnd();
+        if (insertError != null) {
+            System.out.println(insertError);
+        } else {
+            expect(Token.Type.RPAREN);
+            expectEnd();
+        }
 
         System.out.println("Inserted " + rowNum + " rows successfully");
     }
@@ -284,14 +294,14 @@ public class CommandParser {
         switch (type.getType()) {
             case INTEGER:
                 if (token.type != Token.Type.NUMBER || token.value.contains(".")) {
-                    throw new Exception("Error: Attribute '" + attrName + "' must be an integer value");
+                    throw new Exception("Error: Attribute " + attrName + " must be an integer value");
                 }
 
                 return Integer.valueOf(token.value);
 
             case DOUBLE:
                 if (token.type != Token.Type.NUMBER) {
-                    throw new Exception("Error: Attribute '" + attrName + "' must be a double value");
+                    throw new Exception("Error: Attribute " + attrName + " must be a double value");
                 }
 
                 return Double.valueOf(token.value);
@@ -299,7 +309,7 @@ public class CommandParser {
             case BOOLEAN:
                 if (token.type != Token.Type.WORD ||
                     (token.value.equals("True") == false && token.value.equals("False") == false)) {
-                    String errMsg = "Error: Attribute '" + attrName + "' must be True/False";
+                    String errMsg = "Error: Attribute " + attrName + " must be True/False";
                     if (attr.isNotNull() == false) {
                         errMsg += " or NULL";
                     }
@@ -310,12 +320,12 @@ public class CommandParser {
 
             case CHAR:
                 if (token.type != Token.Type.STRING) {
-                    throw new Exception("Error: Attribute '" + attrName + "' must be a string value");
+                    throw new Exception("Error: Attribute " + attrName + " must be a string value");
                 }
 
                 // CHAR enforces an exact max length
                 if (token.value.length() > type.getMaxLength()) {
-                    throw new Exception("Error: Attribute '" + attrName + "' must be " + type.getMaxLength() + " characters");
+                    throw new Exception("Error: Attribute " + attrName + " must be " + type.getMaxLength() + " characters");
                 }
                 return token.value;
 
@@ -333,6 +343,26 @@ public class CommandParser {
             default:
                 throw new Exception("Error: Unknown type for attribute '" + attrName + "'");
         }
+    }
+
+    /**
+     * Formats a list of tokens representing a row of values into a string
+     */
+    private String formatRowTokens(List<Token> tokens) {
+        StringBuilder sb = new StringBuilder("( ");
+        for (int i = 0; i < tokens.size(); i++) {
+            Token t = tokens.get(i);
+            if (t.type == Token.Type.STRING) {
+                sb.append("\"").append(t.value).append("\"");
+            } else {
+                sb.append(t.value);
+            }
+            if (i < tokens.size() - 1) {
+                sb.append(" ");
+            }
+        }
+        sb.append(" )");
+        return sb.toString();
     }
 
     /**
@@ -394,7 +424,7 @@ public class CommandParser {
         }
 
         storageManager.alterTablePages(oldTable, newTable);
-        // System.out.println("Table altered successfully");
+        System.out.println("Table altered successfully");
     }  
 
     /**
@@ -408,6 +438,13 @@ public class CommandParser {
      */
     private TableSchema parseAlterAdd(TableSchema table) throws Exception {
         String attrName = consumeWord();
+
+        Token typeToken = peek();
+        if (typeToken != null && typeToken.type == Token.Type.WORD && typeToken.value.equals("NOTNULL")) {
+            consume();
+            throw new Exception("Error: Not null requires a default value when altering a table");
+        }
+        
         DataType dataType = parseDataType();
         boolean isNN = false;
         Object defaultValue = null;

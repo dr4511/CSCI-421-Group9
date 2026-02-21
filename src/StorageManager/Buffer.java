@@ -1,5 +1,6 @@
 package StorageManager;
 
+import Catalog.Catalog;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -7,8 +8,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.HashMap;
-
-import Catalog.Catalog;
 
 public class Buffer {
     // In-memory page store: key is page id from Page object.
@@ -66,17 +65,19 @@ public class Buffer {
 
         Integer freePageId = catalog.getFreePageListHead();
         if (freePageId != -1) {
-            Page freePage = readPageFromHW(freePageId);
+            Page freePage = getPage(freePageId); // Use getPage instead of readPageFromHW to check buffer first
             int nextFreePageId = freePage.getNextPage();
             catalog.setFreePageListHead(nextFreePageId);
-            freePage.setNextPage(-1);
+            
+            freePage.cleanData();
+            freePage.setDirty();
             newPage = freePage;
             newPageId = freePage.getPageID();
         } else {
             newPageId = appendNewPageToHW();
             newPage = new Page(newPageId, pageSizeBytes);
             // Update catalog to keep track of last used id
-            catalog.setLastPageId(++newPageId);
+            catalog.setLastPageId(newPageId);
         }
         
         addPageToBuffer(newPage);
