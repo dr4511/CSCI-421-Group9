@@ -22,9 +22,19 @@ public class JottQL {
         }
 
         dbLocation = args[0];
-        pageSize = Integer.parseInt(args[1]);
-        bufferSize = Integer.parseInt(args[2]);
-        indexing = Boolean.parseBoolean(args[3]);
+        try {
+            pageSize = Integer.parseInt(args[1]);
+            bufferSize = Integer.parseInt(args[2]);
+            indexing = Boolean.parseBoolean(args[3]);
+        } catch (NumberFormatException e) {
+            System.out.println("Error: pageSize and bufferSize must be integers.");
+            return;
+        }
+
+        if (pageSize <= 0 || bufferSize <= 0) {
+            System.out.println("Error: pageSize and bufferSize must be positive.");
+            return;
+        }
 
         // Check for / create new dbLocation folder
         System.out.println("Welcome to JottQL!");
@@ -68,41 +78,49 @@ public class JottQL {
 
         Scanner scanner = new Scanner(System.in);
 
-        while (true) {
-            System.out.print("JottQL> ");
+        try {
+            while (true) {
+                System.out.print("JottQL> ");
 
-            String firstLine = scanner.nextLine().trim();
+                if (!scanner.hasNextLine()) {
+                    break;
+                }
 
-            if (firstLine.equalsIgnoreCase("<QUIT>")) {
+                String firstLine = scanner.nextLine().trim();
+
+                if (firstLine.equalsIgnoreCase("<QUIT>")) {
+                    break;
+                }
+
+                String command = readRestOfCommand(scanner, firstLine);
+
                 try {
-                    System.out.println("Purging page buffer...");
-                    // PURGE PAGE BUFFER
-                    storageManager.evictAll();
+                    List<Token> tokens = Token.tokenize(command);
+                    CommandParser parser = new CommandParser(tokens, catalog, storageManager);
+                    parser.parse();
                 } catch (Exception e) {
-                    System.out.println("Error purging page buffer: " + e.getMessage());
+                    System.out.println(e.getMessage());
                 }
-
-                try {
-                    System.out.println("Writing catalog to hardware...");
-                    catalog.saveToFile(catalogPath);
-                } catch (IOException e) {
-                    System.out.println("Error saving catalog: " + e.getMessage());
-                }
-
-                System.out.println("Shutting down the database...");
-                scanner.close();
-                return;
             }
-
-            String command = readRestOfCommand(scanner, firstLine);
+        } catch (Exception e) {
+            System.out.println("Unrecoverable error: " + e.getMessage());
+        } finally {
+            try {
+                System.out.println("Purging page buffer....");
+                storageManager.evictAll();
+            } catch (Exception e) {
+                System.out.println("Error purging page buffer: " + e.getMessage());
+            }
 
             try {
-                List<Token> tokens = Token.tokenize(command);
-                CommandParser parser = new CommandParser(tokens, catalog, storageManager);
-                parser.parse();
-            } catch (Exception e) {
-                System.out.println(e.getMessage());
+                System.out.println("Writing catalog to hardware....");
+                catalog.saveToFile(catalogPath);
+            } catch (IOException e) {
+                System.out.println("Error saving catalog: " + e.getMessage());
             }
+
+            System.out.println("Shutting down the database...");
+            scanner.close();
         }
     }
 
