@@ -520,7 +520,7 @@ public class CommandParser {
                     throw new Exception("Error: Default value for CHAR must be a string");
                 }
 
-                if (token.value.length() > type.getMaxLength()) {
+                if (token.value.length() != type.getMaxLength()) {
                     throw new Exception("Error: Default value for CHAR must be " + type.getMaxLength() + " characters");
                 }
                 return token.value;

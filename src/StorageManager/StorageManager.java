@@ -127,7 +127,6 @@ public class StorageManager {
             currPageId = nextPageId;
         }
         catalog.dropTable(table.getName());
-        catalog.dropTable(table.getName());
     }
 
     /**

@@ -71,7 +71,7 @@ public class JottQL {
             return;
         }
 
-        if (catalogFile.exists() && catalog.getPageSize() != pageSize) {
+        if (catalogFile.exists()) {
             System.out.println("Ignoring provided page size. Using prior size of " + catalog.getPageSize() + "....");
         }
         StorageManager storageManager = new StorageManager(dbFile, catalog.getPageSize(), bufferSize, catalog);
@@ -106,19 +106,18 @@ public class JottQL {
             System.out.println("Unrecoverable error: " + e.getMessage());
         } finally {
             try {
-                System.out.println("Purging page buffer....");
-                storageManager.evictAll();
-            } catch (Exception e) {
-                System.out.println("Error purging page buffer: " + e.getMessage());
-            }
-
-            try {
                 System.out.println("Writing catalog to hardware....");
                 catalog.saveToFile(catalogPath);
             } catch (IOException e) {
                 System.out.println("Error saving catalog: " + e.getMessage());
             }
 
+            try {
+                System.out.println("Purging page buffer....");
+                storageManager.evictAll();
+            } catch (Exception e) {
+                System.out.println("Error purging page buffer: " + e.getMessage());
+            }
             System.out.println("Shutting down the database...");
             scanner.close();
         }
