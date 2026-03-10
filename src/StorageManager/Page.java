@@ -6,6 +6,8 @@ import java.util.List;
 import java.nio.ByteBuffer;
 
 public class Page implements Comparable<Page> {
+    private static final int HEADER_SIZE_BYTES = (Integer.BYTES * 5) + Long.BYTES + 1;
+    private static final int SLOT_SIZE_BYTES = 2 * Integer.BYTES;
 
     private static class Slot {
         int offset;
@@ -48,16 +50,14 @@ public class Page implements Comparable<Page> {
     // Use whever page is accessed (read or write)
     // USE WHEN: Loaded in buffer, Record added, Record removed, Record read
     public void touch() {
-        this.lastAccessTimestamp = System.currentTimeMillis();
+        this.lastAccessTimestamp = System.nanoTime();
     }
 
     // Attempt to add record. Returns true if successful.
     // Splits page if not enough space.
     public boolean addRecord(byte[] data) {
-        int slotSize = 2 * Integer.BYTES;
-
         // Fits in current page
-        if (getFreeSpace() >= data.length + slotSize) {
+        if (getFreeSpace() >= data.length + SLOT_SIZE_BYTES) {
             insertRecordInternal(data); // always calls Slot constructor
             return true;
         }
@@ -135,8 +135,7 @@ public class Page implements Comparable<Page> {
 
 
     public int getFreeSpace() {
-        int slotSize = 2 * Integer.BYTES;
-        return freeSpaceEnd - (slots.size() * slotSize);
+        return freeSpaceEnd - (slots.size() * SLOT_SIZE_BYTES) - HEADER_SIZE_BYTES;
     }
 
     public int getNumRecords() {
