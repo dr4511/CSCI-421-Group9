@@ -158,9 +158,7 @@ public class StorageManager {
         while (pageId != -1) {
             Page page = this.buffer.getPage(pageId);
             if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
-                int insertIndex = page.getRecords().isEmpty()
-                        ? 0
-                        : findInsertIndexInPage(table, page, pkIndex, incomingPk);
+                int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
                 insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
                 return true;
             }
