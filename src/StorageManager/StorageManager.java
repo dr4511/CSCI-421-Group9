@@ -5,6 +5,7 @@ import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.Record;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 public class StorageManager {
@@ -13,6 +14,7 @@ public class StorageManager {
     private final int pageSizeBytes;
     private final int bufferSizePages;
     private final Catalog catalog;
+    private static final int SLOT_ENTRY_BYTES = Integer.BYTES * 2;
 
     public StorageManager(File dbFile, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
         if (dbFile == null || !dbFile.exists()) {
@@ -77,7 +79,6 @@ public class StorageManager {
             widths[i] = table.getAttributes().get(i).getName().length();
         }
 
-        int totalRows = 0;
         int currPageId = table.getHeadPageId();
         while (currPageId != -1) { // iterate every page
             Page page = this.buffer.getPage(currPageId);
@@ -89,7 +90,6 @@ public class StorageManager {
                         widths[i] = cellWidth;
                     }
                 }
-                totalRows++;
             }
             currPageId = page.getNextPage();
         }
@@ -141,40 +141,35 @@ public class StorageManager {
         }
 
         Record incomingRecord = new Record(values.clone());
-        byte[] recordBytes = incomingRecord.toBytes(table);
-
         if (hasPrimaryKeyViolation(table, incomingRecord)) {
             return false;
         }
 
-        int[] lastTwoPagesId = findTailPagesId(table.getHeadPageId());
-        int beforeTailPageId = lastTwoPagesId[0];
-        int tailPageId = lastTwoPagesId[1];
+        AttributeSchema primaryKey = table.getPrimaryKey();
+        if (primaryKey == null) {
+            throw new IllegalStateException("Primary key not found.");
+        }
+        int pkIndex = table.getAttributeIndex(primaryKey.getName());
+        byte[] incomingBytes = incomingRecord.toBytes(table);
+        Object incomingPk = incomingRecord.getValue(pkIndex);
 
-        Page tailPage = this.buffer.getPage(tailPageId);
+        int prevPageId = -1;
+        int pageId = table.getHeadPageId();
+        while (pageId != -1) {
+            Page page = this.buffer.getPage(pageId);
+            if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
+                int insertIndex = page.getRecords().isEmpty()
+                        ? 0
+                        : findInsertIndexInPage(table, page, pkIndex, incomingPk);
+                insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+                return true;
+            }
 
-        boolean inserted = tailPage.addRecord(recordBytes);
-        if (inserted) {
-            return true;
+            prevPageId = pageId;
+            pageId = page.getNextPage();
         }
 
-        Page page1 = this.buffer.createNewPage();
-        Page page2 = this.buffer.createNewPage();
-
-        // set page1 nextPage to page2 id
-        page1.setNextPage(page2.getPageID());
-
-        tailPage.split(page1, page2);
-
-        if (beforeTailPageId == -1){
-            table.setHeadPageId(page1.getPageID());
-        } else {
-            updateTablePageLink(beforeTailPageId, page1.getPageID());
-        }
-
-        freePage(tailPage);
-
-        return page2.addRecord(recordBytes);
+        return true;
     }
 
     /**
@@ -221,57 +216,21 @@ public class StorageManager {
     }
 
     public void freePage (Page page) {
-        // clear page of data beside pageid
-        page.cleanData();
-        // setDirty inside of page where data cleaned
-        page.setDirty();
+        int pageId = page.getPageID();
+        Page pageToFree = this.buffer.getPage(pageId);
+        int oldFreeHead = catalog.getFreePageListHead();
 
-        int currFreePageId = catalog.getFreePageListHead();
-        if (currFreePageId == -1){
-            catalog.setFreePageListHead(page.getPageID());
+        if (oldFreeHead == pageId) {
             return;
         }
 
-        while (true) {
-            Page currPage = this.buffer.getPage(currFreePageId);
-            int nextPageId = currPage.getNextPage();
-
-            if (nextPageId == -1) {
-                currPage.setNextPage(page.getPageID());
-                return;
-            }
-
-            currFreePageId = nextPageId;
-        }
+        pageToFree.cleanData();
+        pageToFree.setNextPage(oldFreeHead);
+        catalog.setFreePageListHead(pageId);
     }
 
     public void evictAll() {
         this.buffer.evictAll();
-    }
-
-    /**
-     * Update linked-list pointer between pages.
-     */
-    public void updateTablePageLink(int fromPageId, int toPageId) {
-        Page fromPage = this.buffer.getPage(fromPageId);
-        fromPage.setNextPage(toPageId);
-    }
-
-    private int[] findTailPagesId(int headPageId) {
-        int current = headPageId;
-        int prev = -1;
-        while (true) {
-            Page page = this.buffer.getPage(current);
-            int next = page.getNextPage();
-            if (next == -1) {
-                int[] result = new int[2];
-                result[0] = prev;
-                result[1] = current;
-                return result;
-            }
-            prev = current;
-            current = next;
-        }
     }
 
     private Record rewriteRecordForAlter(Record oldRec, TableSchema oldTable, TableSchema newTable) {
@@ -326,35 +285,97 @@ public class StorageManager {
         return false;
     }
 
-    private void printSelectRows(TableSchema table, List<Record> rows) {
-        int columnCount = table.getAttributeCount();
-        if (columnCount == 0) {
-            System.out.println("(no columns)");
+    private int findInsertIndexInPage(TableSchema table, Page page, int pkIndex, Object incomingPk) {
+        List<byte[]> records = page.getRecords();
+        for (int i = 0; i < records.size(); i++) {
+            Record existingRecord = Record.fromBytes(records.get(i), table);
+            Object existingPk = existingRecord.getValue(pkIndex);
+            if (comparePrimaryKeys(incomingPk, existingPk) <= 0) {
+                return i;
+            }
+        }
+        return records.size();
+    }
+
+    private void insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
+        Page page = this.buffer.getPage(pageId);
+        int nextPageId = page.getNextPage();
+
+        List<byte[]> candidateRecords = new ArrayList<>(page.getRecords());
+        if (insertIndex < 0 || insertIndex > candidateRecords.size()) {
+            throw new IllegalStateException("Invalid insertion position.");
+        }
+        candidateRecords.add(insertIndex, incomingBytes);
+
+        if (page.getFreeSpace() >= incomingBytes.length + SLOT_ENTRY_BYTES) {
+            rewritePageRecords(page, candidateRecords, nextPageId);
             return;
         }
 
-        int[] widths = new int[columnCount];
-        for (int i = 0; i < columnCount; i++) {
-            widths[i] = table.getAttributes().get(i).getName().length();
+        Page leftPage = this.buffer.createNewPage();
+        Page rightPage = this.buffer.createNewPage();
+        leftPage.setNextPage(rightPage.getPageID());
+        rightPage.setNextPage(nextPageId);
+        page.split(leftPage, rightPage);
+
+        if (prevPageId == -1) {
+            table.setHeadPageId(leftPage.getPageID());
+        } else {
+            Page prevPage = this.buffer.getPage(prevPageId);
+            prevPage.setNextPage(leftPage.getPageID());
         }
 
-        for (Record row : rows) {
-            for (int i = 0; i < columnCount; i++) {
-                String cell = formatSelectCell(row.getValue(i));
-                if (cell.length() > widths[i]) {
-                    widths[i] = cell.length();
-                }
+        freePage(page);
+
+        Page targetPage = leftPage;
+        int targetPrevPageId = prevPageId;
+
+        if (!rightPage.getRecords().isEmpty()) {
+            Object rightFirstPk = firstPrimaryKeyInPage(table, rightPage, pkIndex);
+            if (comparePrimaryKeys(incomingPk, rightFirstPk) > 0) {
+                targetPage = rightPage;
+                targetPrevPageId = leftPage.getPageID();
             }
         }
 
-        String border = buildSelectBorder(widths);
-        System.out.println(border);
-        System.out.println(buildSelectHeader(table, widths));
-        System.out.println(border);
-        for (Record row : rows) {
-            System.out.println(buildSelectRow(row, widths));
+        int nextInsertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
+        insertIntoPageOrSplit(table, targetPrevPageId, targetPage.getPageID(), nextInsertIndex, incomingBytes, pkIndex, incomingPk);
+    }
+
+    private Object firstPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
+        byte[] firstRecord = page.getRecords().get(0);
+        return Record.fromBytes(firstRecord, table).getValue(pkIndex);
+    }
+
+    private Object lastPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
+        List<byte[]> records = page.getRecords();
+        byte[] lastRecord = records.get(records.size() - 1);
+        return Record.fromBytes(lastRecord, table).getValue(pkIndex);
+    }
+
+    private boolean shouldInsertInPage(TableSchema table, Page page, int pkIndex, Object incomingPk) {
+        if (page.getRecords().isEmpty()) {
+            return true;
         }
-        System.out.println(border);
+
+        Object pageLastPk = lastPrimaryKeyInPage(table, page, pkIndex);
+        return comparePrimaryKeys(incomingPk, pageLastPk) <= 0 || page.getNextPage() == -1;
+    }
+
+    @SuppressWarnings("unchecked")
+    private int comparePrimaryKeys(Object left, Object right) {
+        Comparable<Object> comparableLeft = (Comparable<Object>) left;
+        return comparableLeft.compareTo(right);
+    }
+
+    private void rewritePageRecords(Page page, List<byte[]> records, int nextPageId) {
+        page.cleanData();
+        page.setNextPage(nextPageId);
+        for (byte[] record : records) {
+            if (!page.addRecord(record)) {
+                throw new IllegalStateException("Failed to insert record into page.");
+            }
+        }
     }
 
     private String buildSelectBorder(int[] widths) {
