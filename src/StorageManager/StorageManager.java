@@ -14,6 +14,7 @@ public class StorageManager {
     private final int pageSizeBytes;
     private final int bufferSizePages;
     private final Catalog catalog;
+    private int nextTemporaryTableId;
     private static final int SLOT_ENTRY_BYTES = Integer.BYTES * 2;
 
     public StorageManager(File dbFile, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
@@ -33,6 +34,7 @@ public class StorageManager {
         this.pageSizeBytes = pageSizeBytes;
         this.bufferSizePages =bufferSizePages;
         this.catalog = catalog;
+        this.nextTemporaryTableId = 0;
 
         this.buffer = new Buffer(pageSizeBytes, bufferSizePages, dbFile, catalog);
     }
@@ -53,9 +55,144 @@ public class StorageManager {
      * CREATE TABLE flow.
      */
     public boolean createTable(TableSchema table) {
+        if (table == null) {
+            throw new IllegalArgumentException("table must be non-null.");
+        }
+        if (this.catalog.tableExists(table.getName())) {
+            return false;
+        }
+
+        initializeTableStorage(table);
+        this.catalog.addTable(table);
+        return true;
+    }
+
+    /**
+     * Creates a transient table for a cartesian-product join.
+     * The returned schema is not added to the catalog and must be dropped after query completion.
+     * TODO: Move temporary table tracking into Catalog once the catalog layer owns temp-table lifecycle.
+     */
+    public TableSchema createTemporaryJoinTable(List<TableSchema> sourceTables) {
+        TableSchema tempTable = new TableSchema("__temp_join_" + nextTemporaryTableId++);
+        for (TableSchema sourceTable : sourceTables) {
+            for (AttributeSchema attribute : sourceTable.getAttributes()) {
+                AttributeSchema tempAttribute = new AttributeSchema(
+                    attribute.getName(),
+                    attribute.getDataType(),
+                    false,
+                    attribute.isNotNull(),
+                    attribute.getDefaultValue()
+                );
+
+                if (!tempTable.addAttribute(tempAttribute)) {
+                    throw new IllegalArgumentException("Duplicate join attribute names are not yet supported: " + attribute.getName());
+                }
+            }
+        }
+
+        initializeTableStorage(tempTable);
+        return tempTable;
+    }
+
+    /**
+     * Materializes a cartesian-product join into a transient table and returns its schema.
+     */
+    public TableSchema materializeCartesianProduct(List<TableSchema> sourceTables) {
+        TableSchema tempTable = createTemporaryJoinTable(sourceTables);
+        Object[] joinedValues = new Object[tempTable.getAttributeCount()];
+        materializeCartesianProductRecursive(sourceTables, 0, joinedValues, 0, tempTable);
+        return tempTable;
+    }
+
+    /**
+     * Drops a transient join table and frees all of its pages.
+     */
+    public void dropTemporaryTable(TableSchema table) {
+        if (table == null) {
+            throw new IllegalArgumentException("table must be non-null.");
+        }
+        freeTablePages(table);
+    }
+
+    /**
+     * Appends a record to the end of a table without primary-key ordering.
+     * Intended for transient join tables and other internal rewrites.
+     */
+    public void appendRecordToTable(TableSchema table, Object[] values) {
+        if (table == null || values == null) {
+            throw new IllegalArgumentException("table and values must be non-null.");
+        }
+        if (values.length != table.getAttributeCount()) {
+            throw new IllegalArgumentException("Value count does not match table attribute count.");
+        }
+
+        Record record = new Record(values.clone());
+        byte[] recordBytes = record.toBytes(table);
+        appendRecordBytes(table, recordBytes);
+    }
+
+    private void initializeTableStorage(TableSchema table) {
         Page newPage = this.buffer.createNewPage();
+        newPage.setNextPage(-1);
         table.setHeadPageId(newPage.getPageID());
-        return this.catalog.addTable(table);
+    }
+
+    private void materializeCartesianProductRecursive(List<TableSchema> sourceTables, int tableIndex, Object[] joinedValues, int valueOffset, TableSchema tempTable) {
+        if (tableIndex == sourceTables.size()) {
+            appendRecordToTable(tempTable, joinedValues);
+            return;
+        }
+
+        TableSchema sourceTable = sourceTables.get(tableIndex);
+        int currPageId = sourceTable.getHeadPageId();
+        while (currPageId != -1) {
+            Page page = this.buffer.getPage(currPageId);
+            for (byte[] data : page.getRecords()) {
+                Record record = Record.fromBytes(data, sourceTable);
+                copyRecordValues(record, joinedValues, valueOffset);
+                materializeCartesianProductRecursive(
+                    sourceTables,
+                    tableIndex + 1,
+                    joinedValues,
+                    valueOffset + sourceTable.getAttributeCount(),
+                    tempTable
+                );
+            }
+            currPageId = page.getNextPage();
+        }
+    }
+
+    private void copyRecordValues(Record sourceRecord, Object[] joinedValues, int valueOffset) {
+        for (int i = 0; i < sourceRecord.getNumAttributes(); i++) {
+            joinedValues[valueOffset + i] = sourceRecord.getValue(i);
+        }
+    }
+
+    private void appendRecordBytes(TableSchema table, byte[] recordBytes) {
+        int pageId = table.getHeadPageId();
+        int prevPageId = -1;
+
+        while (pageId != -1) {
+            Page page = this.buffer.getPage(pageId);
+            if (page.addRecord(recordBytes)) {
+                return;
+            }
+
+            prevPageId = pageId;
+            pageId = page.getNextPage();
+        }
+
+        Page newPage = this.buffer.createNewPage();
+        if (!newPage.addRecord(recordBytes)) {
+            throw new IllegalStateException("Record is too large to fit in a single page.");
+        }
+
+        if (prevPageId == -1) {
+            table.setHeadPageId(newPage.getPageID());
+        } else {
+            Page prevPage = this.buffer.getPage(prevPageId);
+            prevPage.setNextPage(newPage.getPageID());
+        }
     }
 
     /**
@@ -67,16 +204,33 @@ public class StorageManager {
             throw new IllegalArgumentException("table must be non-null.");
         }
 
-        int columnCount = table.getAttributeCount();
+        selectTableColumns(table, table.getAttributes());
+    }
+
+    /**
+     * SELECT <attr1>, <attr2>, ... FROM <table> flow.
+     * Reads pages one by one via buffer and prints only the selected columns.
+     */
+    public void selectTableColumns(TableSchema table, List<AttributeSchema> selectedAttributes) {
+        if (table == null) {
+            throw new IllegalArgumentException("table must be non-null.");
+        }
+        if (selectedAttributes == null) {
+            throw new IllegalArgumentException("selectedAttributes must be non-null.");
+        }
+
+        int columnCount = selectedAttributes.size();
         if (columnCount == 0) {
             System.out.println("(no columns)");
             return;
         }
 
+        int[] selectedIndexes = resolveSelectedIndexes(table, selectedAttributes);
+
         // Caluclate column widths first
         int[] widths = new int[columnCount];
         for (int i = 0; i < columnCount; i++) {
-            widths[i] = table.getAttributes().get(i).getName().length();
+            widths[i] = selectedAttributes.get(i).getName().length();
         }
 
         int currPageId = table.getHeadPageId();
@@ -85,7 +239,7 @@ public class StorageManager {
             for (byte[] data : page.getRecords()) { // iterate every record in page
                 Record record = Record.fromBytes(data, table);
                 for (int i = 0; i < columnCount; i++) { // iterate every cell in record
-                    int cellWidth = formatSelectCell(record.getValue(i)).length();
+                    int cellWidth = formatSelectCell(record.getValue(selectedIndexes[i])).length();
                     if (cellWidth > widths[i]) {
                         widths[i] = cellWidth;
                     }
@@ -97,7 +251,7 @@ public class StorageManager {
         // print pages, should be in cache from LRU
         String border = buildSelectBorder(widths);
         System.out.println(border);
-        System.out.println(buildSelectHeader(table, widths));
+        System.out.println(buildSelectHeader(selectedAttributes, widths));
         System.out.println(border);
 
         currPageId = table.getHeadPageId();
@@ -105,7 +259,7 @@ public class StorageManager {
             Page page = this.buffer.getPage(currPageId);
             for (byte[] data : page.getRecords()) {
                 Record record = Record.fromBytes(data, table);
-                System.out.println(buildSelectRow(record, widths));
+                System.out.println(buildSelectRow(record, selectedIndexes, widths));
             }
             currPageId = page.getNextPage();
         }
@@ -118,14 +272,7 @@ public class StorageManager {
      * Marks all table pages free and removes schema from catalog.
      */
     public void dropTable(TableSchema table) {
-        int currPageId = table.getHeadPageId();
-        while (currPageId != -1) {
-            Page page = this.buffer.getPage(currPageId);
-
-            int nextPageId = page.getNextPage();
-            freePage(page);
-            currPageId = nextPageId;
-        }
+        freeTablePages(table);
         catalog.dropTable(table.getName());
     }
 
@@ -179,11 +326,8 @@ public class StorageManager {
             throw new IllegalArgumentException("oldTableSchema and newTableSchema must be non-null.");
         }
 
-        // Rebuild table pages: iterate old chain, rewrite each record, and insert via insertIntoTable.
         int oldHeadPageId = oldTableSchema.getHeadPageId();
-        Page newHeadPage = this.buffer.createNewPage();
-        newHeadPage.setNextPage(-1);
-        newTableSchema.setHeadPageId(newHeadPage.getPageID());
+        initializeTableStorage(newTableSchema);
 
         if (oldHeadPageId == -1) {
             return true;
@@ -229,6 +373,17 @@ public class StorageManager {
 
     public void evictAll() {
         this.buffer.evictAll();
+    }
+
+    private void freeTablePages(TableSchema table) {
+        int currPageId = table.getHeadPageId();
+        while (currPageId != -1) {
+            Page page = this.buffer.getPage(currPageId);
+
+            int nextPageId = page.getNextPage();
+            freePage(page);
+            currPageId = nextPageId;
+        }
     }
 
     private Record rewriteRecordForAlter(Record oldRec, TableSchema oldTable, TableSchema newTable) {
@@ -384,19 +539,37 @@ public class StorageManager {
         return sb.toString();
     }
 
-    private String buildSelectHeader(TableSchema table, int[] widths) {
+    private int[] resolveSelectedIndexes(TableSchema table, List<AttributeSchema> selectedAttributes) {
+        int[] selectedIndexes = new int[selectedAttributes.size()];
+        for (int i = 0; i < selectedAttributes.size(); i++) {
+            AttributeSchema selectedAttribute = selectedAttributes.get(i);
+            if (selectedAttribute == null) {
+                throw new IllegalArgumentException("selectedAttributes cannot contain null entries.");
+            }
+
+            int attributeIndex = table.getAttributeIndex(selectedAttribute.getName());
+            if (attributeIndex == -1) {
+                throw new IllegalArgumentException("Selected attribute does not belong to table: " + selectedAttribute.getName());
+            }
+
+            selectedIndexes[i] = attributeIndex;
+        }
+        return selectedIndexes;
+    }
+
+    private String buildSelectHeader(List<AttributeSchema> selectedAttributes, int[] widths) {
         StringBuilder sb = new StringBuilder("|");
         for (int i = 0; i < widths.length; i++) {
-            String header = table.getAttributes().get(i).getName();
+            String header = selectedAttributes.get(i).getName();
             sb.append(" ").append(String.format("%-" + widths[i] + "s", header)).append(" |");
         }
         return sb.toString();
     }
 
-    private String buildSelectRow(Record row, int[] widths) {
+    private String buildSelectRow(Record row, int[] selectedIndexes, int[] widths) {
         StringBuilder sb = new StringBuilder("|");
         for (int i = 0; i < widths.length; i++) {
-            String cell = formatSelectCell(row.getValue(i));
+            String cell = formatSelectCell(row.getValue(selectedIndexes[i]));
             sb.append(" ").append(String.format("%-" + widths[i] + "s", cell)).append(" |");
         }
         return sb.toString();
