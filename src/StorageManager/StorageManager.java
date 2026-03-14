@@ -105,6 +105,48 @@ public class StorageManager {
     }
 
     /**
+     * Materializes an ORDERBY result into a transient table.
+     * The returned table keeps the same columns in the same order as the input table.
+     */
+    public TableSchema orderByTable(TableSchema table, AttributeSchema orderAttribute) {
+        if (table == null || orderAttribute == null) {
+            throw new IllegalArgumentException("table and orderAttribute must be non-null.");
+        }
+
+        String orderAttributeName = orderAttribute.getName();
+        if (table.getAttribute(orderAttributeName) == null) {
+            throw new IllegalArgumentException("Order attribute does not belong to table: " + orderAttribute.getName());
+        }
+
+        TableSchema orderedTable = new TableSchema("__temp_orderby_" + nextTemporaryTableId++);
+        for (AttributeSchema attribute : table.getAttributes()) {
+            boolean isOrderAttribute = attribute.getName().equals(orderAttributeName);
+            AttributeSchema orderedAttribute = new AttributeSchema(
+                attribute.getName(),
+                attribute.getDataType(),
+                isOrderAttribute,
+                attribute.isNotNull(),
+                attribute.getDefaultValue()
+            );
+            orderedTable.addAttribute(orderedAttribute);
+        }
+
+        initializeTableStorage(orderedTable);
+
+        int currPageId = table.getHeadPageId();
+        while (currPageId != -1) {
+            Page page = this.buffer.getPage(currPageId);
+            for (byte[] data : page.getRecords()) {
+                Record record = Record.fromBytes(data, table);
+                insertIntoTable(orderedTable, record.getValues(), false);
+            }
+            currPageId = page.getNextPage();
+        }
+
+        return orderedTable;
+    }
+
+    /**
      * Drops a transient join table and frees all of its pages.
      */
     public void dropTemporaryTable(TableSchema table) {
@@ -280,6 +322,13 @@ public class StorageManager {
      * INSERT INTO <table> flow.
      */
     public boolean insertIntoTable(TableSchema table, Object[] values) {
+        return insertIntoTable(table, values, true);
+    }
+
+    /**
+     * INSERT helper for cases like ORDERBY temp tables where duplicate sort-key values are allowed.
+     */
+    public boolean insertIntoTable(TableSchema table, Object[] values, boolean checkPrimaryKeyDuplicates) {
         if (table == null || values == null) {
             throw new IllegalArgumentException("table and values must be non-null.");
         }
@@ -288,7 +337,7 @@ public class StorageManager {
         }
 
         Record incomingRecord = new Record(values.clone());
-        if (hasPrimaryKeyViolation(table, incomingRecord)) {
+        if (checkPrimaryKeyDuplicates && hasPrimaryKeyViolation(table, incomingRecord)) {
             return false;
         }
 
@@ -443,7 +492,7 @@ public class StorageManager {
         for (int i = 0; i < records.size(); i++) {
             Record existingRecord = Record.fromBytes(records.get(i), table);
             Object existingPk = existingRecord.getValue(pkIndex);
-            if (comparePrimaryKeys(incomingPk, existingPk) <= 0) {
+            if (comparePrimaryKeys(incomingPk, existingPk) < 0) {
                 return i;
             }
         }
@@ -467,9 +516,9 @@ public class StorageManager {
 
         Page leftPage = this.buffer.createNewPage();
         Page rightPage = this.buffer.createNewPage();
-        leftPage.setNextPage(rightPage.getPageID());
-        rightPage.setNextPage(nextPageId);
-        page.split(leftPage, rightPage);
+        int mid = candidateRecords.size() / 2;
+        rewritePageRecords(leftPage, new ArrayList<>(candidateRecords.subList(0, mid)), rightPage.getPageID());
+        rewritePageRecords(rightPage, new ArrayList<>(candidateRecords.subList(mid, candidateRecords.size())), nextPageId);
 
         if (prevPageId == -1) {
             table.setHeadPageId(leftPage.getPageID());
@@ -479,25 +528,6 @@ public class StorageManager {
         }
 
         freePage(page);
-
-        Page targetPage = leftPage;
-        int targetPrevPageId = prevPageId;
-
-        if (!rightPage.getRecords().isEmpty()) {
-            Object rightFirstPk = firstPrimaryKeyInPage(table, rightPage, pkIndex);
-            if (comparePrimaryKeys(incomingPk, rightFirstPk) > 0) {
-                targetPage = rightPage;
-                targetPrevPageId = leftPage.getPageID();
-            }
-        }
-
-        int nextInsertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
-        insertIntoPageOrSplit(table, targetPrevPageId, targetPage.getPageID(), nextInsertIndex, incomingBytes, pkIndex, incomingPk);
-    }
-
-    private Object firstPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
-        byte[] firstRecord = page.getRecords().get(0);
-        return Record.fromBytes(firstRecord, table).getValue(pkIndex);
     }
 
     private Object lastPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
@@ -512,11 +542,21 @@ public class StorageManager {
         }
 
         Object pageLastPk = lastPrimaryKeyInPage(table, page, pkIndex);
-        return comparePrimaryKeys(incomingPk, pageLastPk) <= 0 || page.getNextPage() == -1;
+        return comparePrimaryKeys(incomingPk, pageLastPk) < 0 || page.getNextPage() == -1;
     }
 
     @SuppressWarnings("unchecked")
     private int comparePrimaryKeys(Object left, Object right) {
+        if (left == null && right == null) {
+            return 0;
+        }
+        if (left == null) {
+            return 1;
+        }
+        if (right == null) {
+            return -1;
+        }
+
         Comparable<Object> comparableLeft = (Comparable<Object>) left;
         return comparableLeft.compareTo(right);
     }
