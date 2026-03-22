@@ -178,14 +178,30 @@ public class CommandParser {
     
     /**
      * Parses a SELECT statement of the form:
-     * SELECT * FROM <tableName>;
-     * 
-     * Validates that the table exists, then retrieves all records
-     * from the storage manager and prints them.
+     *   SELECT * FROM <tableName>;
+     *   SELECT <table.attr1>, <table.attr2>, ... FROM <tableName>;
+     *
+     * Validates that the table exists, resolves each qualified attribute name
+     * against the schema, then delegates to the storage manager.
      */
     private void parseSelect() throws Exception {
         expectKeyword("SELECT");
-        expect(Token.Type.STAR);
+
+        // Determine whether this is SELECT * or SELECT col1, col2, ...
+        boolean selectAll = (peek() != null && peek().type == Token.Type.STAR);
+
+        List<String> qualifiedNames = new ArrayList<>();
+        if (selectAll) {
+            consume(); // consume the '*'
+        } else {
+            // Parse a comma-separated list of qualified names: table.attribute
+            qualifiedNames.add(consumeQualifiedName());
+            while (peek() != null && peek().type == Token.Type.COMMA) {
+                consume(); // consume ','
+                qualifiedNames.add(consumeQualifiedName());
+            }
+        }
+
         expectKeyword("FROM");
         String tableName = consumeWord();
         expectEnd();
@@ -195,10 +211,44 @@ public class CommandParser {
             throw new Exception("No such table: " + tableName);
         }
 
-        storageManager.selectAllTable(table);
+        if (selectAll) {
+            storageManager.selectAllTable(table);
+        } else {
+            // Resolve each qualified name (table.attr) against the schema
+            List<AttributeSchema> selectedAttributes = new ArrayList<>();
+            for (String qualifiedName : qualifiedNames) {
+                String[] parts = qualifiedName.split("\\.", 2);
+                if (parts.length != 2) {
+                    throw new Exception("Expected qualified name <table>.<attribute>, got: " + qualifiedName);
+                }
+                String qTable = parts[0];
+                String qAttr  = parts[1];
 
-        // System.out.println("select test: " + table);
+                if (!qTable.equals(tableName)) {
+                    throw new Exception("Table name '" + qTable + "' does not match FROM table '" + tableName + "'");
+                }
+
+                AttributeSchema attr = table.getAttribute(qAttr);
+                if (attr == null) {
+                    throw new Exception("No such attribute '" + qAttr + "' in table '" + tableName + "'");
+                }
+                selectedAttributes.add(attr);
+            }
+            storageManager.selectTableColumns(table, selectedAttributes);
+        }
     }
+
+    // HELPER FOR SELECT (AND OTHER QUALIFIED NAMES)
+    /**
+     * Consumes a qualified name of the form <word>.<word> and returns it as a string.
+     * The DOT token must exist between the two words.
+     */
+    private String consumeQualifiedName() throws Exception {
+        String left = consumeWord();
+        expect(Token.Type.DOT);
+        String right = consumeWord();
+        return left + "." + right;
+}
 
     /**
      * Parses an INSERT statement of the form:

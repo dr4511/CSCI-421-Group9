@@ -6,13 +6,14 @@ import java.util.List;
 public class Token {
 
     public enum Type {
-        WORD,  // keywords, identifiers, True/False/null
+        WORD,   // keywords, identifiers, True/False/null
         STRING, // string in double quotes
         NUMBER, // int or double
         LPAREN, // (
         RPAREN, // )
-        COMMA, // ,
-        STAR   // *
+        COMMA,  // ,
+        STAR,   // *
+        DOT     // .
     }
     public final Type type;
     public final String value;
@@ -49,6 +50,9 @@ public class Token {
                 i++;
             } else if (c == '*') {
                 tokens.add(new Token(Token.Type.STAR, "*"));
+                i++;
+            } else if (c == '.') {
+                tokens.add(new Token(Token.Type.DOT, "."));
                 i++;
             } else if (c == '"') {
                 i++;
