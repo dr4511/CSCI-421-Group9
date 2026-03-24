@@ -374,7 +374,7 @@ public class CommandParser {
                 }
 
                 // CHAR enforces an exact max length
-                if (token.value.length() == type.getMaxLength()) {
+                if (token.value.length() != type.getMaxLength()) {
                     throw new Exception("Error: Attribute " + attrName + " must be " + type.getMaxLength() + " characters");
                 }
                 return token.value;
