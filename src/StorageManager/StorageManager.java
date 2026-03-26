@@ -4,6 +4,7 @@ import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.Record;
+import WhereTree.IWhereTree;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -76,17 +77,19 @@ public class StorageManager {
         TableSchema tempTable = new TableSchema("__temp_join_" + nextTemporaryTableId++);
         for (TableSchema sourceTable : sourceTables) {
             for (AttributeSchema attribute : sourceTable.getAttributes()) {
+                String qualifiedName = attribute.getName().contains(".")
+                        ? attribute.getName()
+                        : sourceTable.getName() + "." + attribute.getName();
+
                 AttributeSchema tempAttribute = new AttributeSchema(
-                    attribute.getName(),
+                    qualifiedName,
                     attribute.getDataType(),
                     false,
                     attribute.isNotNull(),
                     attribute.getDefaultValue()
                 );
 
-                if (!tempTable.addAttribute(tempAttribute)) {
-                    throw new IllegalArgumentException("Duplicate join attribute names are not yet supported: " + attribute.getName());
-                }
+                tempTable.addAttribute(tempAttribute);
             }
         }
 
@@ -171,6 +174,16 @@ public class StorageManager {
         Record record = new Record(values.clone());
         byte[] recordBytes = record.toBytes(table);
         appendRecordBytes(table, recordBytes);
+    }
+
+    public TableSchema filterWhere(TableSchema table, IWhereTree whereTree) {
+        // -create new table (copy) of schema of old table 
+        // -for each page in table: 
+        // For each record in page: 
+        //    If wheretree(record): // if tree evals to true we insert
+		// 	insert into new table
+		// return new table 
+        return table;
     }
 
     private void initializeTableStorage(TableSchema table) {

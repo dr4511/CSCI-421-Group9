@@ -13,7 +13,11 @@ public class Token {
         RPAREN, // )
         COMMA,  // ,
         STAR,   // *
-        DOT     // .
+        DOT,    // .
+        RELOP,  // >, >=, <, <=, =, <>
+        PLUS,   // +
+        MINUS,  // -
+        SLASH   // /
     }
     public final Type type;
     public final String value;
@@ -23,6 +27,7 @@ public class Token {
         this.value = value;
     }
 
+    @Override
     public String toString() {
         return type + "(" + value + ")";
     }
@@ -54,6 +59,37 @@ public class Token {
             } else if (c == '.') {
                 tokens.add(new Token(Token.Type.DOT, "."));
                 i++;
+            } else if (c == '+') {
+                tokens.add(new Token(Token.Type.PLUS, "+"));
+                i++;
+            } else if (c == '-') {
+                tokens.add(new Token(Token.Type.MINUS, "-"));
+                i++;
+            } else if (c == '/') {
+                tokens.add(new Token(Token.Type.SLASH, "/"));
+                i++;
+            } else if (c == '=') {
+                tokens.add(new Token(Token.Type.RELOP, "="));
+                i++;
+            } else if (c == '<') {
+                if (i + 1 < input.length() && input.charAt(i + 1) == '=') {
+                    tokens.add(new Token(Token.Type.RELOP, "<="));
+                    i += 2;
+                } else if (i + 1 < input.length() && input.charAt(i + 1) == '>') {
+                    tokens.add(new Token(Token.Type.RELOP, "<>"));
+                    i += 2;
+                } else {
+                    tokens.add(new Token(Token.Type.RELOP, "<"));
+                    i++;
+                }
+            } else if (c == '>') {
+                if (i + 1 < input.length() && input.charAt(i + 1) == '=') {
+                    tokens.add(new Token(Token.Type.RELOP, ">="));
+                    i += 2;
+                } else {
+                    tokens.add(new Token(Token.Type.RELOP, ">"));
+                    i++;
+                }
             } else if (c == '"') {
                 i++;
 

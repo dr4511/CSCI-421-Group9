@@ -5,6 +5,7 @@ import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.DataType;
 import StorageManager.StorageManager;
+import WhereTree.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,10 +26,9 @@ public class CommandParser {
     /**
      * Inspects the first token and delegates to the matching statement parser.
      */
-    public void parse() throws Exception {
+        public void parse() throws Exception {
         Token first = peek();
 
-        // empty
         if (first == null)
             return;
 
@@ -50,6 +50,12 @@ public class CommandParser {
                 break;
             case "ALTER":
                 parseAlterTable();
+                break;
+            case "DELETE":
+                parseDelete();
+                break;
+            case "UPDATE":
+                parseUpdate();
                 break;
             default:
                 throw new Exception("Unknown command: " + first.value);
@@ -187,68 +193,132 @@ public class CommandParser {
     private void parseSelect() throws Exception {
         expectKeyword("SELECT");
 
+        List<TableSchema> tempTables = new ArrayList<>();
+        List<String> colNames = new ArrayList<>();
+
         // Determine whether this is SELECT * or SELECT col1, col2, ...
         boolean selectAll = (peek() != null && peek().type == Token.Type.STAR);
 
-        List<String> qualifiedNames = new ArrayList<>();
         if (selectAll) {
             consume(); // consume the '*'
         } else {
             // Parse a comma-separated list of qualified names: table.attribute
-            qualifiedNames.add(consumeQualifiedName());
+            colNames.add(consumeColumnName());
             while (peek() != null && peek().type == Token.Type.COMMA) {
                 consume(); // consume ','
-                qualifiedNames.add(consumeQualifiedName());
+                colNames.add(consumeColumnName());
             }
         }
 
-        expectKeyword("FROM");
-        String tableName = consumeWord();
+        TableSchema currentTable = parseFrom(tempTables);
+
+        // parse where
+        IWhereTree whereTree = null;
+        if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("WHERE")) {
+            consume();
+            whereTree = parseWhere();
+        }
+
+        // parse order by
+        String orderByName = null;
+        if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("ORDERBY")) {
+            consume();
+            orderByName = consumeColumnName();
+        }
+
         expectEnd();
-
-        TableSchema table = catalog.getTable(tableName);
-        if (table == null) {
-            throw new Exception("No such table: " + tableName);
+        
+        // filter if there is a where clause
+        if (whereTree != null) {
+            TableSchema filtered = storageManager.filterWhere(currentTable, whereTree);
+            tempTables.add(filtered);
+            currentTable = filtered;
         }
-
+        // orderby
+        if (orderByName != null) {
+            AttributeSchema orderAttr = resolveAttribute(currentTable, orderByName);
+            TableSchema ordered = storageManager.orderByTable(currentTable, orderAttr);
+            tempTables.add(ordered);
+            currentTable = ordered;
+        }
+        
+        // select
         if (selectAll) {
-            storageManager.selectAllTable(table);
+            storageManager.selectAllTable(currentTable);
         } else {
-            // Resolve each qualified name (table.attr) against the schema
-            List<AttributeSchema> selectedAttributes = new ArrayList<>();
-            for (String qualifiedName : qualifiedNames) {
-                String[] parts = qualifiedName.split("\\.", 2);
-                if (parts.length != 2) {
-                    throw new Exception("Expected qualified name <table>.<attribute>, got: " + qualifiedName);
-                }
-                String qTable = parts[0];
-                String qAttr  = parts[1];
-
-                if (!qTable.equals(tableName)) {
-                    throw new Exception("Table name '" + qTable + "' does not match FROM table '" + tableName + "'");
-                }
-
-                AttributeSchema attr = table.getAttribute(qAttr);
-                if (attr == null) {
-                    throw new Exception("No such attribute '" + qAttr + "' in table '" + tableName + "'");
-                }
-                selectedAttributes.add(attr);
+            List<AttributeSchema> selectedAttrs = new ArrayList<>();
+            for (String name : colNames) {
+                selectedAttrs.add(resolveAttribute(currentTable, name));
             }
-            storageManager.selectTableColumns(table, selectedAttributes);
+            storageManager.selectTableColumns(currentTable, selectedAttrs);
+        }
+        
+        for (TableSchema temp : tempTables) {
+            storageManager.dropTemporaryTable(temp);
         }
     }
 
-    // HELPER FOR SELECT (AND OTHER QUALIFIED NAMES)
     /**
-     * Consumes a qualified name of the form <word>.<word> and returns it as a string.
-     * The DOT token must exist between the two words.
+     * Consumes a column name that may be qualified, table.attr, or unqualified attr.
      */
-    private String consumeQualifiedName() throws Exception {
-        String left = consumeWord();
-        expect(Token.Type.DOT);
-        String right = consumeWord();
-        return left + "." + right;
-}
+    private String consumeColumnName() throws Exception {
+        String name = consumeWord();
+        if (peek() != null && peek().type == Token.Type.DOT) {
+            consume(); // consume dot
+            String attr = consumeWord();
+            name = name + "." + attr;
+        }
+        return name;
+    }
+
+    /**
+     * Resolves a column name (qualified or unqualified) against a table schema.
+     * Single table, unqualified: "a" matches "a"
+     * Single table, qualified: "t.a" matches "a" by stripping prefix
+     * Joined table, qualified: "t1.a" matches "t1.a"
+     * Joined table, unqualified: "a" matches "t1.a" only if unambiguous
+     */
+    private AttributeSchema resolveAttribute(TableSchema table, String name) throws Exception {
+        name = name.toLowerCase();
+
+        // Exact match
+        AttributeSchema attr;
+        attr = table.getAttribute(name);
+        if (attr != null) {
+            return attr;
+        }
+
+        if (name.contains(".")) {
+            // Qualified name or unqualified attrs from single
+            String suffix = name.substring(name.indexOf(".") + 1); // strip qualifier if any
+            attr = table.getAttribute(suffix);
+            if (attr != null) {
+                return attr;
+            }
+        } else {
+            // Unqualified name but may be amiguous
+            List<AttributeSchema> matches = new ArrayList<>();
+            for (AttributeSchema a : table.getAttributes()) { // check unqualified match against all attributes
+                String attrName = a.getName();
+                String unqualified = attrName.contains(".")
+                        ? attrName.substring(attrName.indexOf(".") + 1)
+                        : attrName;
+                if (unqualified.equals(name)) {
+                    matches.add(attr);
+                }
+            }
+
+            if (matches.size() == 1) {
+                return matches.get(0); // if only 1 match, success
+            }
+
+            if (matches.size() > 1) {
+                throw new Exception("Ambiguous attribute name: " + name); // multiple matches is ambiguous
+            }
+        }
+
+        throw new Exception("No such attribute: " + name);
+    }
 
     /**
      * Parses an INSERT statement of the form:
@@ -618,6 +688,191 @@ public class CommandParser {
         }
 
         return newTable;
+    }
+
+    private void parseDelete() throws Exception {
+        System.out.println("parse delete");
+    }
+
+    private void parseUpdate() throws Exception {
+        System.out.println("parse update");
+    }
+
+    /**
+     * Parse from clause, returns joined table if multiple.
+     */
+    private TableSchema parseFrom(List<TableSchema> tempTables) throws Exception {
+        
+        expectKeyword("FROM");
+        List<String> tableNames = new ArrayList<>();
+        tableNames.add(consumeWord());
+        while (peek() != null && peek().type == Token.Type.COMMA) {
+            consume();
+            tableNames.add(consumeWord());
+        }
+        // Validate all tables exist
+        List<TableSchema> tables = new ArrayList<>();
+        for (String name : tableNames) {
+            TableSchema table = catalog.getTable(name);
+            if (table == null) {
+                throw new Exception("No such table: " + name);
+            }
+            tables.add(table);
+        }
+
+        if (tables.size() == 1) {
+            return tables.get(0);
+        }
+
+        TableSchema joined = storageManager.materializeCartesianProduct(tables);
+        tempTables.add(joined);
+        return joined;
+    }
+
+    /**
+     * Parses a WHERE clause into an IWhereTree 
+     */
+    private IWhereTree parseWhere() throws Exception {
+        List<IWhereTree> output = new ArrayList<>();
+        List<String> opStack = new ArrayList<>();
+
+        output.add(parseComparison());
+
+        while (peek() != null && peek().type == Token.Type.WORD && (peek().value.equals("AND") || peek().value.equals("OR"))) {
+            String op = consume().value;
+
+            while (opStack.isEmpty() == false && logicalPrecedence(opStack.get(opStack.size() - 1)) >= logicalPrecedence(op)) {
+                String top = opStack.remove(opStack.size() - 1);
+                IWhereTree right = output.remove(output.size() - 1);
+                IWhereTree left = output.remove(output.size() - 1);
+                output.add(logicNode(top, left, right));
+            }
+
+            opStack.add(op);
+            output.add(parseComparison());
+        }
+
+        while (opStack.isEmpty() == false) {
+            String top = opStack.remove(opStack.size() - 1);
+            IWhereTree right = output.remove(output.size() - 1);
+            IWhereTree left = output.remove(output.size() - 1);
+            output.add(logicNode(top, left, right));
+        }
+
+        return output.get(0);
+    }
+
+    private int logicalPrecedence(String op) {
+        if (op.equals("AND")) return 2;
+        if (op.equals("OR")) return 1;
+        return 0;
+    }
+
+    private IWhereTree logicNode(String op, IWhereTree left, IWhereTree right) {
+        if (op.equals("AND")) {
+            return new AndNode(left, right);
+        }
+
+        return new OrNode(left, right);
+    }
+
+    /**
+     * Parses a single comparison: <operand> <relop> <operand>  OR  <operand> IS NULL
+     */
+    private IWhereTree parseComparison() throws Exception {
+        IOperandNode left = parseOperand();
+
+        // Handle IS NULL
+        if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("IS")) {
+            consume(); // consume is
+            Token nullToken = consume();
+            if (nullToken.type != Token.Type.WORD || !nullToken.value.equalsIgnoreCase("NULL")) {
+                throw new Exception("Expected NULL after IS, got: " + nullToken.value);
+            }
+            return new RelOpNode(left, "IS NULL", null);
+        }
+
+        // Regular relational operator
+        Token opToken = consume();
+        if (opToken.type != Token.Type.RELOP) {
+            throw new Exception("Expected relational operator but got: " + opToken.value);
+        }
+
+        IOperandNode right = parseOperand();
+        return new RelOpNode(left, opToken.value, right);
+    }
+
+    /**
+     * Parses an operand, which may be a value/attribute or a math expression
+     */
+    private IOperandNode parseOperand() throws Exception {
+        IOperandNode left = parseSimpleOperand();
+
+        if (peek() != null && isMathOp(peek())) {
+            String op = consumeMathOp();
+            IOperandNode right = parseSimpleOperand();
+            return new ArithmeticOpNode(left, op, right);
+        }
+
+        return left;
+    }
+
+    /**
+     * Parses a simple operand: literal value, attribute name, or qualified name.
+     */
+    private IOperandNode parseSimpleOperand() throws Exception {
+        Token t = peek();
+        if (t == null) {
+            throw new Exception("Expected operand but reached end of input");
+        }
+
+        if (t.type == Token.Type.NUMBER) {
+            consume();
+            if (t.value.contains(".")) {
+                return new ValueNode(Double.valueOf(t.value));
+            }
+            return new ValueNode(Integer.valueOf(t.value));
+        }
+
+        if (t.type == Token.Type.STRING) {
+            consume();
+            return new ValueNode(t.value);
+        }
+
+        if (t.type == Token.Type.WORD) {
+            if (t.value.equals("True"))  { consume(); return new ValueNode(true); }
+            if (t.value.equals("False")) { consume(); return new ValueNode(false); }
+            if (t.value.equalsIgnoreCase("null")) { consume(); return new ValueNode(null); }
+
+            // Attribute name — possibly qualified
+            String name = consumeWord();
+            if (peek() != null && peek().type == Token.Type.DOT) {
+                consume(); // .
+                String attr = consumeWord();
+                name = name + "." + attr;
+            }
+            return new AttributeNode(name);
+        }
+
+        throw new Exception("Expected operand but got: " + t.value);
+    }
+
+    private boolean isMathOp(Token t) {
+        return t.type == Token.Type.PLUS
+            || t.type == Token.Type.MINUS
+            || t.type == Token.Type.SLASH
+            || t.type == Token.Type.STAR;
+    }
+
+    private String consumeMathOp() throws Exception {
+        Token t = consume();
+        switch (t.type) {
+            case PLUS:  return "+";
+            case MINUS: return "-";
+            case SLASH: return "/";
+            case STAR:  return "*";
+            default: throw new Exception("Expected math operator but got: " + t.value);
+        }
     }
 
     /**

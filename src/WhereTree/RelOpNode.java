@@ -40,7 +40,7 @@ public class RelOpNode implements IWhereTree {
             case "<=": return compare <= 0;
             case "<":  return compare < 0;
             case "<>": return compare != 0;
-            case "==": return compare == 0;
+            case "=": return compare == 0;
             default:
                 throw new IllegalArgumentException("Unknown operator: " + operator);
         }
