@@ -3,10 +3,10 @@ package WhereTree;
 import Catalog.TableSchema;
 import Common.Record;
 
-public class AttrNode implements IOperandNode {
+public class AttributeNode implements IOperandNode {
     private final String attributeName;
 
-    public AttrNode(String attributeName) {
+    public AttributeNode(String attributeName) {
         this.attributeName = attributeName;
     }
     
