@@ -213,6 +213,12 @@ public class StorageManager {
         return table;
     }
 
+    // Added Stub for Where as well (might be unneeded later)
+    public boolean updateWhere(TableSchema table, AttributeSchema attr, Object newValue, IWhereTree whereTree) {
+        
+        return true;
+    }
+
     private void initializeTableStorage(TableSchema table) {
         Page newPage = this.buffer.createNewPage();
         newPage.setNextPage(-1);

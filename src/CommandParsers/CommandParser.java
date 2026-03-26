@@ -642,11 +642,65 @@ public class CommandParser {
     }
 
     private void parseDelete() throws Exception {
-        System.out.println("parse delete");
+        expectKeyword("DELETE");
+        expectKeyword("FROM");
+ 
+        String tableName = consumeWord();
+        TableSchema table = catalog.getTable(tableName);
+        if (table == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+ 
+        IWhereTree whereTree = null;
+        if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("WHERE")) {
+            consume(); // consume WHERE
+            whereTree = parseWhere();
+        }
+ 
+        expectEnd();
+ 
+        // TODO: Replace placeholder once StorageManager implementation is complete.
+        storageManager.deleteWhere(table, whereTree);
+        System.out.println("Delete successful");
     }
 
     private void parseUpdate() throws Exception {
-        System.out.println("parse update");
+        expectKeyword("UPDATE");
+ 
+        String tableName = consumeWord();
+        TableSchema table = catalog.getTable(tableName);
+        if (table == null) {
+            throw new Exception("No such table: " + tableName);
+        }
+ 
+        expectKeyword("SET");
+ 
+        // Parse <attrName> = <value>
+        String attrName = consumeWord();
+        AttributeSchema attr = table.getAttribute(attrName);
+        if (attr == null) {
+            throw new Exception("No such attribute '" + attrName + "' in table '" + tableName + "'");
+        }
+ 
+        Token eq = consume();
+        if (eq.type != Token.Type.RELOP || !eq.value.equals("=")) {
+            throw new Exception("Expected '=' after attribute name in SET clause, got '" + eq.value + "'");
+        }
+ 
+        Token valueToken = consume();
+        Object newValue = convertValue(valueToken, attr);
+ 
+        IWhereTree whereTree = null;
+        if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("WHERE")) {
+            consume(); // consume WHERE
+            whereTree = parseWhere();
+        }
+ 
+        expectEnd();
+ 
+        // TODO: Replace placeholder once StorageManager implementation is complete.
+        storageManager.updateWhere(table, attr, newValue, whereTree);
+        System.out.println("Update successful");
     }
 
     /**
