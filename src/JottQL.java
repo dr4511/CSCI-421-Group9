@@ -16,25 +16,25 @@ public class JottQL {
 
     public static void main(String[] args) {
 
-        // if (args.length != 4) {
-        //     System.out.println("Usage: java JottQL <dbLocation> <pageSize> <bufferSize> <indexing>");
-        //     return;
-        // }
+        if (args.length != 4) {
+            System.out.println("Usage: java JottQL <dbLocation> <pageSize> <bufferSize> <indexing>");
+            return;
+        }
 
-        // dbLocation = args[0];
-        // try {
-        //     pageSize = Integer.parseInt(args[1]);
-        //     bufferSize = Integer.parseInt(args[2]);
-        //     indexing = Boolean.parseBoolean(args[3]);
-        // } catch (NumberFormatException e) {
-        //     System.out.println("Error: pageSize and bufferSize must be integers.");
-        //     return;
-        // }
+        dbLocation = args[0];
+        try {
+            pageSize = Integer.parseInt(args[1]);
+            bufferSize = Integer.parseInt(args[2]);
+            indexing = Boolean.parseBoolean(args[3]);
+        } catch (NumberFormatException e) {
+            System.out.println("Error: pageSize and bufferSize must be integers.");
+            return;
+        }
 
-        pageSize = 4096;
-        bufferSize = 10;
-        indexing = true;
-        dbLocation = "db1";
+        // pageSize = 4096;
+        // bufferSize = 10;
+        // indexing = true;
+        // dbLocation = "db";
 
         if (pageSize <= 0 || bufferSize <= 0) {
             System.out.println("Error: pageSize and bufferSize must be positive.");
