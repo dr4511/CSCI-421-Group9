@@ -126,6 +126,59 @@ public class TableSchema {
         this.headPageId = pageId;
     }
 
+    /**
+     * Resolves a column name (qualified or unqualified) against a table schema.
+     * Single table, unqualified: "a" matches "a"
+     * Single table, qualified: "t.a" matches "a" by stripping prefix
+     * Joined table, qualified: "t1.a" matches "t1.a"
+     * Joined table, unqualified: "a" matches "t1.a" only if unambiguous
+     * 
+     * returns null if no matches
+     */
+    public AttributeSchema resolveAttribute(String name) throws Exception {
+        name = name.toLowerCase();
+
+        // Exact match
+        AttributeSchema attr;
+        attr = getAttribute(name);
+        if (attr != null) {
+            return attr;
+        }
+
+        if (name.contains(".")) {
+            String suffix = name.substring(name.indexOf(".") + 1); // strip qualifier
+            attr = getAttribute(suffix);
+            if (attr != null) {
+                return attr;
+            }
+        } else {
+            String nameToMatch = name.contains(".")
+                ? name.substring(name.indexOf(".") + 1)
+                : name;
+
+            List<AttributeSchema> matches = new ArrayList<>();
+            for (AttributeSchema a : getAttributes()) { // check unqualified match against all attributes
+                String attrName = a.getName();
+                String unqualified = attrName.contains(".")
+                        ? attrName.substring(attrName.indexOf(".") + 1)
+                        : attrName;
+                if (unqualified.equals(nameToMatch)) {
+                    matches.add(a);
+                }
+            }
+
+            if (matches.size() == 1) {
+                return matches.get(0); // if only 1 match, success
+            }
+
+            if (matches.size() > 1) {
+                throw new Exception("Ambiguous attribute name: " + name); // multiple matches is ambiguous
+            }
+        }
+
+        throw new Exception("No such attribute: " + name);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

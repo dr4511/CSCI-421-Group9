@@ -28,9 +28,7 @@ public class RelOpNode implements IWhereTree {
         Object rightVal = right.getValue(record, schema);
 
         if (leftVal == null || rightVal == null) {
-            throw new IllegalArgumentException(
-                    "Cannot compare NULL using '" + operator + "' — use IS NULL to check for null values"
-            );
+            return false;
         }
         Comparable<Object> leftComp = (Comparable<Object>) leftVal;
         int compare = leftComp.compareTo(rightVal);

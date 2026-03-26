@@ -236,7 +236,7 @@ public class CommandParser {
         }
         // orderby
         if (orderByName != null) {
-            AttributeSchema orderAttr = resolveAttribute(currentTable, orderByName);
+            AttributeSchema orderAttr = currentTable.resolveAttribute(orderByName);
             TableSchema ordered = storageManager.orderByTable(currentTable, orderAttr);
             tempTables.add(ordered);
             currentTable = ordered;
@@ -248,7 +248,7 @@ public class CommandParser {
         } else {
             List<AttributeSchema> selectedAttrs = new ArrayList<>();
             for (String name : colNames) {
-                selectedAttrs.add(resolveAttribute(currentTable, name));
+                selectedAttrs.add(currentTable.resolveAttribute(name));
             }
             storageManager.selectTableColumns(currentTable, selectedAttrs);
         }
@@ -269,55 +269,6 @@ public class CommandParser {
             name = name + "." + attr;
         }
         return name;
-    }
-
-    /**
-     * Resolves a column name (qualified or unqualified) against a table schema.
-     * Single table, unqualified: "a" matches "a"
-     * Single table, qualified: "t.a" matches "a" by stripping prefix
-     * Joined table, qualified: "t1.a" matches "t1.a"
-     * Joined table, unqualified: "a" matches "t1.a" only if unambiguous
-     */
-    private AttributeSchema resolveAttribute(TableSchema table, String name) throws Exception {
-        name = name.toLowerCase();
-
-        // Exact match
-        AttributeSchema attr;
-        attr = table.getAttribute(name);
-        if (attr != null) {
-            return attr;
-        }
-
-        if (name.contains(".")) {
-            // Qualified name or unqualified attrs from single
-            String suffix = name.substring(name.indexOf(".") + 1); // strip qualifier if any
-            attr = table.getAttribute(suffix);
-            if (attr != null) {
-                return attr;
-            }
-        } else {
-            // Unqualified name but may be amiguous
-            List<AttributeSchema> matches = new ArrayList<>();
-            for (AttributeSchema a : table.getAttributes()) { // check unqualified match against all attributes
-                String attrName = a.getName();
-                String unqualified = attrName.contains(".")
-                        ? attrName.substring(attrName.indexOf(".") + 1)
-                        : attrName;
-                if (unqualified.equals(name)) {
-                    matches.add(attr);
-                }
-            }
-
-            if (matches.size() == 1) {
-                return matches.get(0); // if only 1 match, success
-            }
-
-            if (matches.size() > 1) {
-                throw new Exception("Ambiguous attribute name: " + name); // multiple matches is ambiguous
-            }
-        }
-
-        throw new Exception("No such attribute: " + name);
     }
 
     /**
@@ -799,8 +750,14 @@ public class CommandParser {
         }
 
         IOperandNode right = parseOperand();
+        if (right instanceof ValueNode && ((ValueNode) right).getValue(null, null) == null) {
+            throw new Exception("Cannot compare with NULL using '" + opToken.value);
+        }
+        if (left instanceof ValueNode && ((ValueNode) left).getValue(null, null) == null) {
+            throw new Exception("Cannot compare with NULL using '" + opToken.value);
+        }
         return new RelOpNode(left, opToken.value, right);
-    }
+        }
 
     /**
      * Parses an operand, which may be a value/attribute or a math expression
