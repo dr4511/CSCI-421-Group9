@@ -183,23 +183,23 @@ public class StorageManager {
         //    If wheretree(record): // if tree evals to true we insert
 		// 	insert into new table
 		// return new table 
-        TableSchema resultTable = new TableSchema(table);
+        TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
+        for (AttributeSchema attr : table.getAttributes()) {
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue()));
+        }
+
+        initializeTableStorage(resultTable);
         // resultTable.setHeadPageId(-1);   Do we need to make new pages or overwrite for this copy table
         int pageId = table.getHeadPageId();
-        while(pageId != -1){
+        while(pageId != -1) {
             Page page = buffer.getPage(pageId);
 
             // Derialize records from byte[] to record
             List<byte[]> recordData = page.getRecords();
-            ArrayList<Record> records = new ArrayList<Record>(); 
             for( byte[] data : recordData){
-                records.add(Record.fromBytes(data, table));
-            }
-
-            // Go through each record and call evaluate
-            for (Record record : records) {
-                if (whereTree.evaluate(record, table)) {
-                    // TODO: Insert into new table.
+                Record record = Record.fromBytes(data, table);
+                if(whereTree.evaluate(record, table)){
+                    appendRecordToTable(resultTable, record.getValues());
                 }
             }
 
