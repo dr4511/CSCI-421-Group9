@@ -208,6 +208,11 @@ public class StorageManager {
         return resultTable;
     }
 
+    public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
+        
+        return table;
+    }
+
     private void initializeTableStorage(TableSchema table) {
         Page newPage = this.buffer.createNewPage();
         newPage.setNextPage(-1);
