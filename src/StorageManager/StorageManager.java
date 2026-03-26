@@ -183,7 +183,29 @@ public class StorageManager {
         //    If wheretree(record): // if tree evals to true we insert
 		// 	insert into new table
 		// return new table 
-        return table;
+        TableSchema resultTable = new TableSchema(table);
+        // resultTable.setHeadPageId(-1);   Do we need to make new pages or overwrite for this copy table
+        int pageId = table.getHeadPageId();
+        while(pageId != -1){
+            Page page = buffer.getPage(pageId);
+
+            // Derialize records from byte[] to record
+            List<byte[]> recordData = page.getRecords();
+            ArrayList<Record> records = new ArrayList<Record>(); 
+            for( byte[] data : recordData){
+                records.add(Record.fromBytes(data, table));
+            }
+
+            // Go through each record and call evaluate
+            for (Record record : records) {
+                if (whereTree.evaluate(record, table)) {
+                    // TODO: Insert into new table.
+                }
+            }
+
+            pageId = page.getNextPage();
+        }
+        return resultTable;
     }
 
     private void initializeTableStorage(TableSchema table) {
