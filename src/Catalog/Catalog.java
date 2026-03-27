@@ -166,6 +166,7 @@ public class Catalog {
     private static void writeTable(DataOutputStream out, TableSchema table) throws IOException {
         out.writeUTF(table.getName());
         out.writeInt(table.getHeadPageId());
+        out.writeInt(table.getTailPageId());
 
         List<AttributeSchema> attrs = table.getAttributes();
         out.writeInt(attrs.size());
@@ -178,7 +179,8 @@ public class Catalog {
         String name = in.readUTF();
         TableSchema table = new TableSchema(name);
         table.setHeadPageId(in.readInt());
-
+        table.setTailPageId(in.readInt());
+     
         int attrCount = in.readInt();
         for (int i = 0; i < attrCount; i++) {
             table.addAttribute(readAttribute(in));

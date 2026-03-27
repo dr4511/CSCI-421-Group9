@@ -30,6 +30,13 @@ public class RelOpNode implements IWhereTree {
         if (leftVal == null || rightVal == null) {
             return false;
         }
+
+        if (leftVal.getClass().equals(rightVal.getClass()) == false) {
+            throw new IllegalArgumentException("Type mismatch in comparison: " + leftVal.getClass().getSimpleName() +
+                " vs " + rightVal.getClass().getSimpleName());
+        }
+
+        @SuppressWarnings("unchecked")
         Comparable<Object> leftComp = (Comparable<Object>) leftVal;
         int compare = leftComp.compareTo(rightVal);
         switch (operator) {

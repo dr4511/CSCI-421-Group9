@@ -234,6 +234,7 @@ public class StorageManager {
 
         freeTablePages(table);
         table.setHeadPageId(resultTable.getHeadPageId());
+        table.setTailPageId(resultTable.getTailPageId());
         return resultTable;
     }
 
@@ -251,7 +252,12 @@ public class StorageManager {
                 Record record = Record.fromBytes(data, table);
                 Object[] values = record.getValues().clone();
                 if (whereTree == null || whereTree.evaluate(record, table)) {
-                    values[idx] = newValue.getValue(record, table);
+                    Object computed = newValue.getValue(record, table);
+                    if (computed == null && attr.isNotNull()) {
+                        throw new IllegalArgumentException(
+                            "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
+                    }
+                    values[idx] = computed;
                 }
                 insertIntoTable(resultTable, values);
             }
@@ -259,6 +265,7 @@ public class StorageManager {
         }
         freeTablePages(table);
         table.setHeadPageId(resultTable.getHeadPageId());
+        table.setTailPageId(resultTable.getTailPageId());
     }
 
     private void initializeTableStorage(TableSchema table) {
