@@ -265,6 +265,7 @@ public class StorageManager {
         Page newPage = this.buffer.createNewPage();
         newPage.setNextPage(-1);
         table.setHeadPageId(newPage.getPageID());
+        table.setTailPageId(newPage.getPageID());
     }
 
     private void materializeCartesianProductRecursive(List<TableSchema> sourceTables, int tableIndex, Object[] joinedValues, int valueOffset, TableSchema tempTable) {
@@ -299,17 +300,13 @@ public class StorageManager {
     }
 
     private void appendRecordBytes(TableSchema table, byte[] recordBytes) {
-        int pageId = table.getHeadPageId();
-        int prevPageId = -1;
+        int tailId = table.getTailPageId();
 
-        while (pageId != -1) {
-            Page page = this.buffer.getPage(pageId);
-            if (page.addRecord(recordBytes)) {
+        if (tailId != -1) {
+            Page tailPage = this.buffer.getPage(tailId);
+            if (tailPage.addRecord(recordBytes)) {
                 return;
             }
-
-            prevPageId = pageId;
-            pageId = page.getNextPage();
         }
 
         Page newPage = this.buffer.createNewPage();
@@ -317,12 +314,14 @@ public class StorageManager {
             throw new IllegalStateException("Record is too large to fit in a single page.");
         }
 
-        if (prevPageId == -1) {
+        if (tailId == -1) {
             table.setHeadPageId(newPage.getPageID());
         } else {
-            Page prevPage = this.buffer.getPage(prevPageId);
-            prevPage.setNextPage(newPage.getPageID());
+            Page tailPage = this.buffer.getPage(tailId);
+            tailPage.setNextPage(newPage.getPageID());
         }
+
+        table.setTailPageId(newPage.getPageID());
     }
 
     /**
@@ -510,6 +509,7 @@ public class StorageManager {
 
     public void evictAll() {
         this.buffer.evictAll();
+        this.buffer.close();
     }
 
     private void freeTablePages(TableSchema table) {

@@ -18,6 +18,9 @@ public class Buffer {
     private final File dbFile;
     private final Catalog catalog;
 
+    private final RandomAccessFile raf;
+    private final FileChannel channel;
+
     public Buffer(int pageSizeBytes, int bufferSizePages, File dbFile, Catalog catalog) {
         if (pageSizeBytes <= 0) {
             throw new IllegalArgumentException("pageSizeBytes must be > 0.");
@@ -34,6 +37,13 @@ public class Buffer {
         this.dbFile = dbFile;
         this.pagesById = new HashMap<>(this.capacityPages);
         this.catalog = catalog;
+
+        try {
+            this.raf = new RandomAccessFile(dbFile, "rw");
+            this.channel = raf.getChannel();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to open database file.", e);
+        }
     }
 
     /**
@@ -159,8 +169,7 @@ public class Buffer {
     }
 
     private int appendNewPageToHW() {
-        try (RandomAccessFile raf = new RandomAccessFile(dbFile, "rw");
-             FileChannel channel = raf.getChannel()) {
+        try {
 
             int newPageId = catalog.getLastPageId() + 1;
             long offset = pageOffset(newPageId);
@@ -178,9 +187,7 @@ public class Buffer {
     }
 
     private ByteBuffer readPageBytesFromHW(int pageId) {
-        try (RandomAccessFile raf = new RandomAccessFile(dbFile, "rw");
-             FileChannel channel = raf.getChannel()) {
-
+        try {
             long offset = pageOffset(pageId);
             long fileSize = channel.size();
             if (offset + this.pageSizeBytes > fileSize) {
@@ -211,9 +218,7 @@ public class Buffer {
     private void writePageBytesToHW(int pageId, ByteBuffer rawPageBytes) {
         ByteBuffer normalizedPageBytes = normalizePageBytes(rawPageBytes);
 
-        try (RandomAccessFile raf = new RandomAccessFile(this.dbFile, "rw");
-             FileChannel channel = raf.getChannel()) {
-
+        try {
             long offset = pageOffset(pageId);
             channel.position(offset);
             while (normalizedPageBytes.hasRemaining()) {
@@ -244,4 +249,13 @@ public class Buffer {
         return (long) pageId * this.pageSizeBytes;
     }
 
+    
+    public void close() {
+        try {
+            channel.close();
+            raf.close();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to close database file.", e);
+        }
+    }
 }

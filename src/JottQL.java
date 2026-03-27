@@ -122,9 +122,10 @@ public class JottQL {
                 storageManager.evictAll();
             } catch (Exception e) {
                 System.out.println("Error purging page buffer: " + e.getMessage());
+            } finally {
+                System.out.println("Shutting down the database...");
+                scanner.close();
             }
-            System.out.println("Shutting down the database...");
-            scanner.close();
         }
     }
 

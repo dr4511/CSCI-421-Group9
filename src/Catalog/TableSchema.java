@@ -8,6 +8,7 @@ public class TableSchema {
     private final String name;
     private final List<AttributeSchema> attributes;
     private int headPageId;
+    private int tailPageId;
 
     /**
      * Creates a new TableSchema with the given name and an empty list of attributes.
@@ -16,6 +17,7 @@ public class TableSchema {
         this.name = tableName.toLowerCase();
         this.attributes = new ArrayList<>();
         this.headPageId = -1;
+        this.tailPageId = -1;
     }
 
     /**
@@ -26,6 +28,7 @@ public class TableSchema {
         this.name = other.name;
         this.attributes = new ArrayList<>(other.attributes);
         this.headPageId = other.headPageId;
+        this.tailPageId = other.tailPageId;
     }
 
     /**
@@ -124,6 +127,20 @@ public class TableSchema {
      */
     public void setHeadPageId(int pageId) {
         this.headPageId = pageId;
+    }
+
+    /**
+     * @return the page ID of the tail page for this table, or -1 if not set.
+     */
+    public int getTailPageId() {
+        return tailPageId;
+    }
+
+    /**
+     * Sets the page ID of the tail page.
+     */
+    public void setTailPageId(int pageId) {
+        this.tailPageId = pageId;
     }
 
     /**
