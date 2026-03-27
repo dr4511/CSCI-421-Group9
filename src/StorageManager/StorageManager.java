@@ -209,8 +209,29 @@ public class StorageManager {
     }
 
     public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
-        
-        return table;
+        TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
+        for (AttributeSchema attr : table.getAttributes()) {
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue()));
+        }
+        initializeTableStorage(resultTable);
+        int pageId = table.getHeadPageId();
+        while(pageId != -1) {
+            Page page = buffer.getPage(pageId);
+
+         
+            // Derialize records from byte[] to record
+            List<byte[]> recordData = page.getRecords();
+            for( byte[] data : recordData){
+                Record record = Record.fromBytes(data, table);
+                // If where evaluates to true, do not add to table
+                if(!whereTree.evaluate(record, resultTable)){
+                    appendRecordToTable(resultTable, record.getValues());
+                }
+            }
+            pageId = page.getNextPage();
+        }
+
+        return resultTable;
     }
 
     // Added Stub for Where as well (might be unneeded later)
