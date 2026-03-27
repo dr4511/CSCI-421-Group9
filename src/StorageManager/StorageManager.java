@@ -234,10 +234,28 @@ public class StorageManager {
         return resultTable;
     }
 
-    // Added Stub for Where as well (might be unneeded later)
-    public boolean updateWhere(TableSchema table, AttributeSchema attr, Object newValue, IWhereTree whereTree) {
-        
-        return true;
+    public void updateWhere(TableSchema table, AttributeSchema attr, Object newValue, IWhereTree whereTree) {
+        TableSchema resultTable = new TableSchema(table.getName());
+        for (AttributeSchema a : table.getAttributes()) {
+            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue()));
+        }
+        initializeTableStorage(resultTable);
+        int idx = table.getAttributeIndex(attr.getName());
+        int pageId = table.getHeadPageId();
+        while (pageId != -1) {
+            Page page = buffer.getPage(pageId);
+            for (byte[] data : page.getRecords()) {
+                Record record = Record.fromBytes(data, table);
+                Object[] values = record.getValues().clone();
+                if (whereTree == null || whereTree.evaluate(record, table)) {
+                    values[idx] = newValue;
+                }
+                appendRecordToTable(resultTable, values);
+            }
+            pageId = page.getNextPage();
+        }
+        freeTablePages(table);
+        table.setHeadPageId(resultTable.getHeadPageId());
     }
 
     private void initializeTableStorage(TableSchema table) {
