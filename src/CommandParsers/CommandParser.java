@@ -659,7 +659,6 @@ public class CommandParser {
  
         expectEnd();
  
-        // TODO: Replace placeholder once StorageManager implementation is complete.
         storageManager.deleteWhere(table, whereTree);
         System.out.println("Delete successful");
     }
@@ -687,8 +686,7 @@ public class CommandParser {
             throw new Exception("Expected '=' after attribute name in SET clause, got '" + eq.value + "'");
         }
  
-        Token valueToken = consume();
-        Object newValue = convertValue(valueToken, attr);
+        IOperandNode setValue = parseOperand();
  
         IWhereTree whereTree = null;
         if (peek() != null && peek().type == Token.Type.WORD && peek().value.equals("WHERE")) {
@@ -698,8 +696,7 @@ public class CommandParser {
  
         expectEnd();
  
-        // TODO: Replace placeholder once StorageManager implementation is complete.
-        storageManager.updateWhere(table, attr, newValue, whereTree);
+        storageManager.updateWhere(table, attr, setValue, whereTree);
         System.out.println("Update successful");
     }
 

@@ -4,6 +4,7 @@ import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import Catalog.TableSchema;
 import Common.Record;
+import WhereTree.IOperandNode;
 import WhereTree.IWhereTree;
 import java.io.File;
 import java.util.ArrayList;
@@ -236,7 +237,7 @@ public class StorageManager {
         return resultTable;
     }
 
-    public void updateWhere(TableSchema table, AttributeSchema attr, Object newValue, IWhereTree whereTree) {
+    public void updateWhere(TableSchema table, AttributeSchema attr, IOperandNode newValue, IWhereTree whereTree) {
         TableSchema resultTable = new TableSchema(table.getName());
         for (AttributeSchema a : table.getAttributes()) {
             resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue()));
@@ -250,9 +251,9 @@ public class StorageManager {
                 Record record = Record.fromBytes(data, table);
                 Object[] values = record.getValues().clone();
                 if (whereTree == null || whereTree.evaluate(record, table)) {
-                    values[idx] = newValue;
+                    values[idx] = newValue.getValue(record, table);
                 }
-                appendRecordToTable(resultTable, values);
+                insertIntoTable(resultTable, values);
             }
             pageId = page.getNextPage();
         }

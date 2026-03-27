@@ -98,7 +98,6 @@ public class JottQL {
                 }
 
                 String command = readRestOfCommand(scanner, firstLine);
-System.out.println(command + ";");
 
                 try {
                     List<Token> tokens = Token.tokenize(command);
