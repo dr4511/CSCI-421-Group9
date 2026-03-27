@@ -224,13 +224,15 @@ public class StorageManager {
             for( byte[] data : recordData){
                 Record record = Record.fromBytes(data, table);
                 // If where evaluates to true, do not add to table
-                if(!whereTree.evaluate(record, resultTable)){
+                if(whereTree != null && !whereTree.evaluate(record, table)){
                     appendRecordToTable(resultTable, record.getValues());
                 }
             }
             pageId = page.getNextPage();
         }
 
+        freeTablePages(table);
+        table.setHeadPageId(resultTable.getHeadPageId());
         return resultTable;
     }
 
