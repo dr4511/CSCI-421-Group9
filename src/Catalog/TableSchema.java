@@ -11,6 +11,12 @@ public class TableSchema {
     private int tailPageId;
 
     /**
+     * Page ID of the root node of this table's B+ tree index on its primary key.
+     * -1 means no index has been built yet.
+     */
+    private int btreeRootPageId;
+
+    /**
      * Creates a new TableSchema with the given name and an empty list of attributes.
      */
     public TableSchema(String tableName) {
@@ -18,6 +24,7 @@ public class TableSchema {
         this.attributes = new ArrayList<>();
         this.headPageId = -1;
         this.tailPageId = -1;
+        this.btreeRootPageId = -1;
     }
 
     /**
@@ -29,6 +36,7 @@ public class TableSchema {
         this.attributes = new ArrayList<>(other.attributes);
         this.headPageId = other.headPageId;
         this.tailPageId = other.tailPageId;
+        this.btreeRootPageId = other.btreeRootPageId;
     }
 
     /**
@@ -144,6 +152,28 @@ public class TableSchema {
     }
 
     /**
+     * @return the page ID of the B+ tree root for this table's primary-key index,
+     *         or -1 if no index exists yet.
+     */
+    public int getBtreeRootPageId() {
+        return btreeRootPageId;
+    }
+
+    /**
+     * Sets the page ID of the B+ tree root. Pass -1 to mark the index as absent.
+     */
+    public void setBtreeRootPageId(int pageId) {
+        this.btreeRootPageId = pageId;
+    }
+
+    /**
+     * @return true if a B+ tree index has been built for this table.
+     */
+    public boolean hasBtreeIndex() {
+        return btreeRootPageId != -1;
+    }
+
+    /**
      * Resolves a column name (qualified or unqualified) against a table schema.
      * Single table, unqualified: "a" matches "a"
      * Single table, qualified: "t.a" matches "a" by stripping prefix
@@ -203,6 +233,7 @@ public class TableSchema {
         sb.append("TableSchema{\n");
         sb.append("  name='").append(name).append("',\n");
         sb.append("  headPageId=").append(headPageId).append(",\n");
+        sb.append("  btreeRootPageId=").append(btreeRootPageId).append(",\n");
         sb.append("  attributes=[").append(attributes.size()).append("]\n");
 
         if (!attributes.isEmpty()) {

@@ -90,7 +90,6 @@ public class Catalog {
         return pageSize;
     }
 
-
     public boolean isIndexing() {
         return indexing;
     }
@@ -163,10 +162,14 @@ public class Catalog {
         return catalog;
     }
 
+    // Table serialization
     private static void writeTable(DataOutputStream out, TableSchema table) throws IOException {
         out.writeUTF(table.getName());
         out.writeInt(table.getHeadPageId());
         out.writeInt(table.getTailPageId());
+
+        // B+ tree root page id (-1 when no index exists for this table)
+        out.writeInt(table.getBtreeRootPageId());
 
         List<AttributeSchema> attrs = table.getAttributes();
         out.writeInt(attrs.size());
@@ -180,7 +183,10 @@ public class Catalog {
         TableSchema table = new TableSchema(name);
         table.setHeadPageId(in.readInt());
         table.setTailPageId(in.readInt());
-     
+
+        // B+ tree root page id (shouldn't cause issues if attempting to toggle)
+        table.setBtreeRootPageId(in.readInt());
+
         int attrCount = in.readInt();
         for (int i = 0; i < attrCount; i++) {
             table.addAttribute(readAttribute(in));
@@ -188,6 +194,7 @@ public class Catalog {
         return table;
     }
 
+    // Attribute serialization
     private static void writeAttribute(DataOutputStream out, AttributeSchema attr) throws IOException {
         out.writeUTF(attr.getName());
 
