@@ -3,6 +3,8 @@ package Catalog;
 import java.util.ArrayList;
 import java.util.List;
 
+import StorageManager.BPlusTree;
+
 public class TableSchema {
 
     private final String name;
@@ -16,6 +18,9 @@ public class TableSchema {
      */
     private int btreeRootPageId;
 
+
+    private List<BPlusTree> uniqueIndexes;
+
     /**
      * Creates a new TableSchema with the given name and an empty list of attributes.
      */
@@ -25,6 +30,7 @@ public class TableSchema {
         this.headPageId = -1;
         this.tailPageId = -1;
         this.btreeRootPageId = -1;
+        this.uniqueIndexes = new ArrayList<>();
     }
 
     /**
@@ -37,6 +43,15 @@ public class TableSchema {
         this.headPageId = other.headPageId;
         this.tailPageId = other.tailPageId;
         this.btreeRootPageId = other.btreeRootPageId;
+        this.uniqueIndexes = new ArrayList<>(other.uniqueIndexes);
+    }
+
+    public void addUniqueIndex(BPlusTree tree) {
+    uniqueIndexes.add(tree);
+    }
+    
+    public List<BPlusTree> getUniqueIndexes() {
+        return uniqueIndexes;
     }
 
     /**
