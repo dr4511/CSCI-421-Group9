@@ -9,15 +9,17 @@ public class AttributeSchema {
     private final boolean isPrimaryKey;
     private final boolean isNotNull;
     private final Object defaultValue;
+    private final boolean isUnique;
 
     public AttributeSchema(String name, DataType dataType,
                            boolean isPrimaryKey, boolean isNotNull,
-                           Object defaultValue) {
+                           Object defaultValue, boolean isUnique) {
         this.name = name.toLowerCase();  // Case-insensitive
         this.type = dataType;
         this.isPrimaryKey = isPrimaryKey;
         this.isNotNull = isNotNull || isPrimaryKey;
         this.defaultValue = defaultValue;
+        this.isUnique = isUnique;
     }
 
     public String getName() {
@@ -38,6 +40,10 @@ public class AttributeSchema {
 
     public Object getDefaultValue() {
         return defaultValue;
+    }
+
+    public boolean getIsUnique() {
+        return isUnique;
     }
 
     @Override
