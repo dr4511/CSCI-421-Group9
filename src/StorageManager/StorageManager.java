@@ -8,6 +8,8 @@ import WhereTree.IOperandNode;
 import WhereTree.IWhereTree;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 
 public class StorageManager {
@@ -18,6 +20,7 @@ public class StorageManager {
     private final Catalog catalog;
     private int nextTemporaryTableId;
     private static final int SLOT_ENTRY_BYTES = Integer.BYTES * 2;
+    private final Map<String, BPlusTree> uniqueIndexes = new HashMap<>();
 
     public StorageManager(File dbFile, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
         if (dbFile == null || !dbFile.exists()) {
@@ -65,6 +68,12 @@ public class StorageManager {
         }
 
         initializeTableStorage(table);
+        for (AttributeSchema attr : table.getAttributes()) {
+            if (attr.getIsUnique()) {
+                String key = table.getName() + "." + attr.getName();
+                uniqueIndexes.put(key, new BPlusTree(buffer, table, attr));
+            }
+        }
         this.catalog.addTable(table);
         return true;
     }
@@ -257,6 +266,23 @@ public class StorageManager {
                         throw new IllegalArgumentException(
                             "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
                     }
+                    if (attr.getIsUnique()) {
+                       // Find corresponding index
+                       for (BPlusTree tree : table.getUniqueIndexes()) {
+                           if (tree.getAttrIndex() == idx) {
+
+                               // Check if value already exists
+                               if (tree.contains(computed)) {
+
+                                   // IMPORTANT: allow if it's the same record value (no actual change)
+                                   Object oldValue = record.getValue(idx);
+                                   if (oldValue == null || !oldValue.equals(computed)) {
+                                       throw new IllegalArgumentException("UNIQUE constraint violation");
+                                   }
+                               }
+                           }
+                       }
+                    }
                     values[idx] = computed;
                 }
                 insertIntoTable(resultTable, values);
@@ -434,7 +460,19 @@ public class StorageManager {
         if (checkPrimaryKeyDuplicates && hasPrimaryKeyViolation(table, incomingRecord)) {
             return false;
         }
+        for (AttributeSchema attr : table.getAttributes()) {
+        if (attr.getIsUnique()) {
+            int idx = table.getAttributeIndex(attr.getName());
+            Object value = values[idx];
 
+            String key = table.getName() + "." + attr.getName();
+            BPlusTree tree = uniqueIndexes.get(key);
+
+        if (tree != null && tree.contains(value)) {
+            return false; // UNIQUE violation
+        }
+    }
+}
         AttributeSchema primaryKey = table.getPrimaryKey();
         if (primaryKey == null) {
             throw new IllegalStateException("Primary key not found.");
@@ -450,6 +488,19 @@ public class StorageManager {
             if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
                 int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
                 insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+                for (AttributeSchema attr : table.getAttributes()) {
+                    if (attr.getIsUnique()) {
+                        int idx = table.getAttributeIndex(attr.getName());
+                        Object value = values[idx];
+
+                        String key = table.getName() + "." + attr.getName();
+                        BPlusTree tree = uniqueIndexes.get(key);
+
+                        if (tree != null) {
+                            tree.insert(value, pageId); // pageId from insertion context
+                        }
+                    }
+                }
                 return true;
             }
 
