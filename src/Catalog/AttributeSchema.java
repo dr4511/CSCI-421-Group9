@@ -58,7 +58,7 @@ public class AttributeSchema {
                 ", primaryKey=" + isPrimaryKey +
                 ", notNull=" + isNotNull +
                 ", defaultValue=" + dv +
+                ", unique=" + isUnique +
                 '}';
-                // TODO: add Unique boolean
     }
 }

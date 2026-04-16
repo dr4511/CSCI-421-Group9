@@ -204,6 +204,7 @@ public class Catalog {
 
         out.writeBoolean(attr.isPrimaryKey());
         out.writeBoolean(attr.isNotNull());
+        out.writeBoolean(attr.getIsUnique());
 
         writeDefaultValue(out, dataType, attr.getDefaultValue());
     }
@@ -224,8 +225,9 @@ public class Catalog {
         boolean isPK = in.readBoolean();
         boolean isNN = in.readBoolean();
         Object defVal = readDefaultValue(in, dataType);
+        boolean isUn = in.readBoolean();
 
-        return new AttributeSchema(name, dataType, isPK, isNN, defVal);
+        return new AttributeSchema(name, dataType, isPK, isNN, defVal,isUn);
     }
 
     private static void writeDefaultValue(DataOutputStream out, DataType dataType, Object value) throws IOException {
