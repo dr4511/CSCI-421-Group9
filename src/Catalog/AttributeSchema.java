@@ -59,5 +59,6 @@ public class AttributeSchema {
                 ", notNull=" + isNotNull +
                 ", defaultValue=" + dv +
                 '}';
+                // TODO: add Unique boolean
     }
 }
