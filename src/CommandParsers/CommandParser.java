@@ -121,6 +121,7 @@ public class CommandParser {
         DataType dataType = parseDataType();
         boolean isPK = false;
         boolean isNN = false;
+        boolean isUn = false;
 
         // Consume trailing constraint keywords until a comma, closing parenthesis, or end of input.
         while (peek() != null && peek().type == Token.Type.WORD) {
@@ -133,13 +134,16 @@ public class CommandParser {
                 } else if (t.value.equals("NOTNULL")) {
                     consume();
                     isNN = true;
+                } else if (t.value.equals("UNIQUE")) {
+                    consume();
+                    isUn = true;
                 } else {
                     break; // not a constraint, next column def
                 }
             }
         }
 
-        AttributeSchema attr = new AttributeSchema(attrName, dataType, isPK, isNN, null);
+        AttributeSchema attr = new AttributeSchema(attrName, dataType, isPK, isNN, null,isUn);
         if (table.addAttribute(attr) == false) {
             throw new Exception("Error: Attribute name already exists");
         }
@@ -519,6 +523,7 @@ public class CommandParser {
         DataType dataType = parseDataType();
         boolean isNN = false;
         Object defaultValue = null;
+        boolean isUn = false;
 
         // Consume trailing constraint keywords until end of input.
         while (peek() != null && peek().type == Token.Type.WORD) {
@@ -529,6 +534,9 @@ public class CommandParser {
                 consume();
                 Token valueToken = consume();
                 defaultValue = convertDefault(valueToken, dataType);
+            } else if (peek().value.equals("UNIQUE")) {
+                consume();
+                isUn = true;
             } else {
                 break; // not a constraint, end of command
             }
@@ -540,7 +548,7 @@ public class CommandParser {
             throw new Exception("Error: Not null requires a default value when altering a table");
         }
         
-        AttributeSchema newAttr = new AttributeSchema(attrName, dataType, false, isNN, defaultValue);
+        AttributeSchema newAttr = new AttributeSchema(attrName, dataType, false, isNN, defaultValue, isUn);
         TableSchema newTable = new TableSchema(table);
 
         if (newTable.addAttribute(newAttr) == false) {
