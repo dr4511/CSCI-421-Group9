@@ -96,7 +96,8 @@ public class StorageManager {
                     attribute.getDataType(),
                     false,
                     attribute.isNotNull(),
-                    attribute.getDefaultValue()
+                    attribute.getDefaultValue(),
+                    attribute.getIsUnique()
                 );
 
                 tempTable.addAttribute(tempAttribute);
@@ -139,7 +140,8 @@ public class StorageManager {
                 attribute.getDataType(),
                 isOrderAttribute,
                 attribute.isNotNull(),
-                attribute.getDefaultValue()
+                attribute.getDefaultValue(),
+                attribute.getIsUnique()
             );
             orderedTable.addAttribute(orderedAttribute);
         }
@@ -195,7 +197,7 @@ public class StorageManager {
 		// return new table 
         TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
         for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue()));
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
         }
 
         initializeTableStorage(resultTable);
@@ -221,7 +223,7 @@ public class StorageManager {
     public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
         TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
         for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue()));
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
         }
         initializeTableStorage(resultTable);
         int pageId = table.getHeadPageId();
@@ -250,7 +252,7 @@ public class StorageManager {
     public void updateWhere(TableSchema table, AttributeSchema attr, IOperandNode newValue, IWhereTree whereTree) {
         TableSchema resultTable = new TableSchema(table.getName());
         for (AttributeSchema a : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue()));
+            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue(),a.getIsUnique()));
         }
         initializeTableStorage(resultTable);
         int idx = table.getAttributeIndex(attr.getName());
