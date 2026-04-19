@@ -9,6 +9,9 @@ public class TableSchema {
     private final List<AttributeSchema> attributes;
     private int headPageId;
     private int tailPageId;
+    // in the fields section
+    private int btreeN;
+
 
     /**
      * Page ID of the root node of this table's B+ tree index on its primary key.
@@ -25,6 +28,8 @@ public class TableSchema {
         this.headPageId = -1;
         this.tailPageId = -1;
         this.btreeRootPageId = -1;
+        this.btreeN = -1;
+
     }
 
     /**
@@ -37,7 +42,19 @@ public class TableSchema {
         this.headPageId = other.headPageId;
         this.tailPageId = other.tailPageId;
         this.btreeRootPageId = other.btreeRootPageId;
+        this.btreeN = other.btreeN;
     }
+
+    // getter
+    public int getBtreeN() {
+        return btreeN;
+    }
+
+    // setter
+    public void setBtreeN(int n) {
+        this.btreeN = n;
+    }
+
 
     /**
      * @return the name of the table (case-insensitive)

@@ -9,15 +9,28 @@ public class AttributeSchema {
     private final boolean isPrimaryKey;
     private final boolean isNotNull;
     private final Object defaultValue;
+    private final boolean isUnique;
+
 
     public AttributeSchema(String name, DataType dataType,
                            boolean isPrimaryKey, boolean isNotNull,
-                           Object defaultValue) {
-        this.name = name.toLowerCase();  // Case-insensitive
+                           boolean isUnique, Object defaultValue) {
+        this.name = name.toLowerCase();
         this.type = dataType;
         this.isPrimaryKey = isPrimaryKey;
         this.isNotNull = isNotNull || isPrimaryKey;
+        this.isUnique = isUnique || isPrimaryKey; // pk is always unique
         this.defaultValue = defaultValue;
+    }
+    public AttributeSchema(String name, DataType dataType,
+                           boolean isPrimaryKey, boolean isNotNull,
+                           Object defaultValue) {
+        this(name, dataType, isPrimaryKey, isNotNull, false, defaultValue);
+    }
+
+
+    public boolean isUnique() {
+        return isUnique;
     }
 
     public String getName() {

@@ -170,6 +170,8 @@ public class Catalog {
 
         // B+ tree root page id (-1 when no index exists for this table)
         out.writeInt(table.getBtreeRootPageId());
+        out.writeInt(table.getBtreeN());
+
 
         List<AttributeSchema> attrs = table.getAttributes();
         out.writeInt(attrs.size());
@@ -186,6 +188,7 @@ public class Catalog {
 
         // B+ tree root page id (shouldn't cause issues if attempting to toggle)
         table.setBtreeRootPageId(in.readInt());
+        table.setBtreeN(in.readInt());
 
         int attrCount = in.readInt();
         for (int i = 0; i < attrCount; i++) {
@@ -204,6 +207,7 @@ public class Catalog {
 
         out.writeBoolean(attr.isPrimaryKey());
         out.writeBoolean(attr.isNotNull());
+        out.writeBoolean(attr.isUnique());
 
         writeDefaultValue(out, dataType, attr.getDefaultValue());
     }
@@ -223,9 +227,10 @@ public class Catalog {
 
         boolean isPK = in.readBoolean();
         boolean isNN = in.readBoolean();
+        boolean isUnique = in.readBoolean();
         Object defVal = readDefaultValue(in, dataType);
 
-        return new AttributeSchema(name, dataType, isPK, isNN, defVal);
+        return new AttributeSchema(name, dataType, isPK, isNN, isUnique, defVal);
     }
 
     private static void writeDefaultValue(DataOutputStream out, DataType dataType, Object value) throws IOException {
