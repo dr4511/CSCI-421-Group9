@@ -8,6 +8,8 @@ import WhereTree.IOperandNode;
 import WhereTree.IWhereTree;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 
 public class StorageManager {
@@ -18,7 +20,7 @@ public class StorageManager {
     private final Catalog catalog;
     private int nextTemporaryTableId;
     private static final int SLOT_ENTRY_BYTES = Integer.BYTES * 2;
-    private static final int UNKNOWN_PREVIOUS_PAGE_ID = -2;
+    private final Map<String, BPlusTree> uniqueIndexes = new HashMap<>();
 
     public StorageManager(File dbFile, int pageSizeBytes, int bufferSizePages, Catalog catalog) {
         if (dbFile == null || !dbFile.exists()) {
@@ -66,7 +68,12 @@ public class StorageManager {
         }
 
         initializeTableStorage(table);
-        initializeBPlusTreeMetadata(table);
+        for (AttributeSchema attr : table.getAttributes()) {
+            if (attr.isUnique()) {
+                String key = table.getName() + "." + attr.getName();
+                uniqueIndexes.put(key, new BPlusTree(buffer, table, attr));
+            }
+        }
         this.catalog.addTable(table);
         return true;
     }
@@ -89,6 +96,7 @@ public class StorageManager {
                     attribute.getDataType(),
                     false,
                     attribute.isNotNull(),
+                    attribute.isUnique(),
                     attribute.getDefaultValue()
                 );
 
@@ -132,6 +140,7 @@ public class StorageManager {
                 attribute.getDataType(),
                 isOrderAttribute,
                 attribute.isNotNull(),
+                attribute.isUnique(),
                 attribute.getDefaultValue()
             );
             orderedTable.addAttribute(orderedAttribute);
@@ -188,7 +197,7 @@ public class StorageManager {
 		// return new table 
         TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
         for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue()));
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
         }
 
         initializeTableStorage(resultTable);
@@ -212,15 +221,14 @@ public class StorageManager {
     }
 
     public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
-        TableSchema resultTable = copyTableSchema(table);
+        TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
+        for (AttributeSchema attr : table.getAttributes()) {
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
+        }
         initializeTableStorage(resultTable);
-        catalog.dropTable(table.getName());
-        catalog.addTable(resultTable);
-
         int pageId = table.getHeadPageId();
         while(pageId != -1) {
             Page page = buffer.getPage(pageId);
-            int nextPageId = page.getNextPage();
 
          
             // Derialize records from byte[] to record
@@ -229,29 +237,28 @@ public class StorageManager {
                 Record record = Record.fromBytes(data, table);
                 // If where evaluates to true, do not add to table
                 if(whereTree != null && !whereTree.evaluate(record, table)){
-                    if (!insertIntoTable(resultTable, record.getValues())) {
-                        throw new IllegalStateException("DELETE rebuild failed while inserting kept record.");
-                    }
+                    appendRecordToTable(resultTable, record.getValues());
                 }
             }
-            pageId = nextPageId;
+            pageId = page.getNextPage();
         }
 
         freeTablePages(table);
+        table.setHeadPageId(resultTable.getHeadPageId());
+        table.setTailPageId(resultTable.getTailPageId());
         return resultTable;
     }
 
     public void updateWhere(TableSchema table, AttributeSchema attr, IOperandNode newValue, IWhereTree whereTree) {
-        TableSchema resultTable = copyTableSchema(table);
+        TableSchema resultTable = new TableSchema(table.getName());
+        for (AttributeSchema a : table.getAttributes()) {
+            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue(),a.getIsUnique()));
+        }
         initializeTableStorage(resultTable);
-        catalog.dropTable(table.getName());
-        catalog.addTable(resultTable);
-
         int idx = table.getAttributeIndex(attr.getName());
         int pageId = table.getHeadPageId();
         while (pageId != -1) {
             Page page = buffer.getPage(pageId);
-            int nextPageId = page.getNextPage();
             for (byte[] data : page.getRecords()) {
                 Record record = Record.fromBytes(data, table);
                 Object[] values = record.getValues().clone();
@@ -261,15 +268,32 @@ public class StorageManager {
                         throw new IllegalArgumentException(
                             "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
                     }
+                    if (attr.isUnique()) {
+                       // Find corresponding index
+                       for (BPlusTree tree : table.getUniqueIndexes()) {
+                           if (tree.getAttrIndex() == idx) {
+
+                               // Check if value already exists
+                               if (tree.contains(computed)) {
+
+                                   // IMPORTANT: allow if it's the same record value (no actual change)
+                                   Object oldValue = record.getValue(idx);
+                                   if (oldValue == null || !oldValue.equals(computed)) {
+                                       throw new IllegalArgumentException("UNIQUE constraint violation");
+                                   }
+                               }
+                           }
+                       }
+                    }
                     values[idx] = computed;
                 }
-                if (!insertIntoTable(resultTable, values)) {
-                    throw new IllegalStateException("UPDATE rebuild failed while inserting rewritten record.");
-                }
+                insertIntoTable(resultTable, values);
             }
-            pageId = nextPageId;
+            pageId = page.getNextPage();
         }
         freeTablePages(table);
+        table.setHeadPageId(resultTable.getHeadPageId());
+        table.setTailPageId(resultTable.getTailPageId());
     }
 
     private void initializeTableStorage(TableSchema table) {
@@ -277,21 +301,6 @@ public class StorageManager {
         newPage.setNextPage(-1);
         table.setHeadPageId(newPage.getPageID());
         table.setTailPageId(newPage.getPageID());
-    }
-
-    private TableSchema copyTableSchema(TableSchema table) {
-        TableSchema copy = new TableSchema(table.getName());
-        for (AttributeSchema attr : table.getAttributes()) {
-            copy.addAttribute(new AttributeSchema(
-                attr.getName(),
-                attr.getDataType(),
-                attr.isPrimaryKey(),
-                attr.isNotNull(),
-                attr.isUnique(),
-                attr.getDefaultValue()
-            ));
-        }
-        return copy;
     }
 
     private void materializeCartesianProductRecursive(List<TableSchema> sourceTables, int tableIndex, Object[] joinedValues, int valueOffset, TableSchema tempTable) {
@@ -450,14 +459,22 @@ public class StorageManager {
         }
 
         Record incomingRecord = new Record(values.clone());
-        if (shouldUseIndexedInsert(table, checkPrimaryKeyDuplicates)) {
-            return insertIntoTableUsingIndex(table, incomingRecord);
-        }
-
         if (checkPrimaryKeyDuplicates && hasPrimaryKeyViolation(table, incomingRecord)) {
             return false;
         }
+        for (AttributeSchema attr : table.getAttributes()) {
+        if (attr.isUnique()) {
+            int idx = table.getAttributeIndex(attr.getName());
+            Object value = values[idx];
 
+            String key = table.getName() + "." + attr.getName();
+            BPlusTree tree = uniqueIndexes.get(key);
+
+        if (tree != null && tree.contains(value)) {
+            return false; // UNIQUE violation
+        }
+    }
+}
         AttributeSchema primaryKey = table.getPrimaryKey();
         if (primaryKey == null) {
             throw new IllegalStateException("Primary key not found.");
@@ -472,7 +489,20 @@ public class StorageManager {
             Page page = this.buffer.getPage(pageId);
             if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
                 int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
-                insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk, null);
+                insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+                for (AttributeSchema attr : table.getAttributes()) {
+                    if (attr.isUnique()) {
+                        int idx = table.getAttributeIndex(attr.getName());
+                        Object value = values[idx];
+
+                        String key = table.getName() + "." + attr.getName();
+                        BPlusTree tree = uniqueIndexes.get(key);
+
+                        if (tree != null) {
+                            tree.insert(value, pageId); // pageId from insertion context
+                        }
+                    }
+                }
                 return true;
             }
 
@@ -481,72 +511,6 @@ public class StorageManager {
         }
 
         return true;
-    }
-
-    private boolean shouldUseIndexedInsert(TableSchema table, boolean checkPrimaryKeyDuplicates) {
-        return this.catalog.isIndexing()
-            && checkPrimaryKeyDuplicates
-            && table.getPrimaryKey() != null
-            && this.catalog.getTable(table.getName()) == table;
-    }
-
-    private boolean insertIntoTableUsingIndex(TableSchema table, Record incomingRecord) {
-        AttributeSchema primaryKey = table.getPrimaryKey();
-        int pkIndex = table.getAttributeIndex(primaryKey.getName());
-        Object incomingPk = incomingRecord.getValue(pkIndex);
-        if (incomingPk == null) {
-            return false;
-        }
-
-        initializeBPlusTreeMetadata(table);
-        BPlusTree index = new BPlusTree(this.buffer, table);
-        if (index.contains(incomingPk)) {
-            return false;
-        }
-
-        byte[] incomingBytes = incomingRecord.toBytes(table);
-        int targetPageId = index.findTablePageForKey(incomingPk);
-        if (targetPageId == -1) {
-            targetPageId = table.getHeadPageId();
-        }
-
-        Page targetPage = this.buffer.getPage(targetPageId);
-        int insertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
-        int insertedPageId = insertIntoPageOrSplit(table, UNKNOWN_PREVIOUS_PAGE_ID, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk, index);
-        index.upsert(incomingPk, insertedPageId);
-        return true;
-    }
-
-    private void initializeBPlusTreeMetadata(TableSchema table) {
-        if (!this.catalog.isIndexing()) {
-            return;
-        }
-
-        AttributeSchema primaryKey = table.getPrimaryKey();
-        if (primaryKey == null) {
-            return;
-        }
-
-        if (table.getBtreeN() < 2) {
-            table.setBtreeN(Math.max(2, BPlusTreeNode.computeN(this.pageSizeBytes, primaryKey)));
-        }
-    }
-
-    private int findPreviousPageId(TableSchema table, int targetPageId) {
-        int prevPageId = -1;
-        int pageId = table.getHeadPageId();
-
-        while (pageId != -1 && pageId != targetPageId) {
-            Page page = this.buffer.getPage(pageId);
-            prevPageId = pageId;
-            pageId = page.getNextPage();
-        }
-
-        if (pageId == -1) {
-            throw new IllegalStateException("Indexed insert target page is not in table page chain.");
-        }
-
-        return prevPageId;
     }
 
     /**
@@ -560,9 +524,6 @@ public class StorageManager {
 
         int oldHeadPageId = oldTableSchema.getHeadPageId();
         initializeTableStorage(newTableSchema);
-        newTableSchema.setBtreeRootPageId(-1);
-        catalog.dropTable(oldTableSchema.getName());
-        catalog.addTable(newTableSchema);
 
         if (oldHeadPageId == -1) {
             return true;
@@ -586,16 +547,14 @@ public class StorageManager {
             currentOldPageId = nextOldPageId;
         }
 
-        freeTablePages(oldTableSchema);
+        catalog.dropTable(oldTableSchema.getName());
+        catalog.addTable(newTableSchema);
 
         return true;
     }
 
     public void freePage (Page page) {
-        freePageById(page.getPageID());
-    }
-
-    private void freePageById(int pageId) {
+        int pageId = page.getPageID();
         Page pageToFree = this.buffer.getPage(pageId);
         int oldFreeHead = catalog.getFreePageListHead();
 
@@ -688,7 +647,7 @@ public class StorageManager {
         return records.size();
     }
 
-    private int insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk, BPlusTree index) {
+    private void insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
         Page page = this.buffer.getPage(pageId);
         int nextPageId = page.getNextPage();
 
@@ -700,54 +659,23 @@ public class StorageManager {
 
         if (page.getFreeSpace() >= incomingBytes.length + SLOT_ENTRY_BYTES) {
             rewritePageRecords(page, candidateRecords, nextPageId);
-            updateTailAfterInsert(table, page.getPageID(), nextPageId);
-            return page.getPageID();
-        }
-
-        int leftPageId = this.buffer.createNewPage().getPageID();
-        int rightPageId = this.buffer.createNewPage().getPageID();
-        int mid = candidateRecords.size() / 2;
-        rewritePageRecords(leftPageId, new ArrayList<>(candidateRecords.subList(0, mid)), rightPageId);
-        rewritePageRecords(rightPageId, new ArrayList<>(candidateRecords.subList(mid, candidateRecords.size())), nextPageId);
-
-        if (prevPageId == UNKNOWN_PREVIOUS_PAGE_ID) {
-            prevPageId = findPreviousPageId(table, pageId);
-        }
-
-        if (prevPageId == -1) {
-            table.setHeadPageId(leftPageId);
-        } else {
-            Page prevPage = this.buffer.getPage(prevPageId);
-            prevPage.setNextPage(leftPageId);
-        }
-
-        freePageById(pageId);
-        updateTailAfterInsert(table, rightPageId, nextPageId);
-        updateIndexPointersAfterSplit(table, leftPageId, rightPageId, pkIndex, index);
-        return insertIndex < mid ? leftPageId : rightPageId;
-    }
-
-    private void updateTailAfterInsert(TableSchema table, int insertedPageId, int nextPageId) {
-        if (nextPageId == -1) {
-            table.setTailPageId(insertedPageId);
-        }
-    }
-
-    private void updateIndexPointersAfterSplit(TableSchema table, int leftPageId, int rightPageId, int pkIndex, BPlusTree index) {
-        if (index == null) {
             return;
         }
 
-        updateIndexPointersForPage(table, leftPageId, pkIndex, index);
-        updateIndexPointersForPage(table, rightPageId, pkIndex, index);
-    }
+        Page leftPage = this.buffer.createNewPage();
+        Page rightPage = this.buffer.createNewPage();
+        int mid = candidateRecords.size() / 2;
+        rewritePageRecords(leftPage, new ArrayList<>(candidateRecords.subList(0, mid)), rightPage.getPageID());
+        rewritePageRecords(rightPage, new ArrayList<>(candidateRecords.subList(mid, candidateRecords.size())), nextPageId);
 
-    private void updateIndexPointersForPage(TableSchema table, int pageId, int pkIndex, BPlusTree index) {
-        List<byte[]> records = new ArrayList<>(this.buffer.getPage(pageId).getRecords());
-        for (byte[] data : records) {
-            Record record = Record.fromBytes(data, table);
-            index.upsert(record.getValue(pkIndex), pageId);
+        if (prevPageId == -1) {
+            table.setHeadPageId(leftPage.getPageID());
+        } else {
+            Page prevPage = this.buffer.getPage(prevPageId);
+            prevPage.setNextPage(leftPage.getPageID());
         }
+
+        freePage(page);
     }
 
     private Object lastPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
@@ -789,10 +717,6 @@ public class StorageManager {
                 throw new IllegalStateException("Failed to insert record into page.");
             }
         }
-    }
-
-    private void rewritePageRecords(int pageId, List<byte[]> records, int nextPageId) {
-        rewritePageRecords(this.buffer.getPage(pageId), records, nextPageId);
     }
 
     private String buildSelectBorder(int[] widths) {

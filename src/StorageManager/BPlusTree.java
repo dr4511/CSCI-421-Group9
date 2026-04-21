@@ -21,7 +21,7 @@ public class BPlusTree {
         this.n = table.getBtreeN();
     }
 
-    public int getPkIndex() {
+    public int getAttrIndex() {
         return attrIndex;
     }
 

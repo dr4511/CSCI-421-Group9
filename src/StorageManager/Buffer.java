@@ -1,6 +1,6 @@
 package StorageManager;
 
-wimport Catalog.AttributeSchema;
+import Catalog.AttributeSchema;
 import Catalog.Catalog;
 import java.io.File;
 import java.io.IOException;
