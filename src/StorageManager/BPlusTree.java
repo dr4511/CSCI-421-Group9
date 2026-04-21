@@ -9,20 +9,20 @@ public class BPlusTree {
 
     private final Buffer buffer;
     private final TableSchema table;
-    private final AttributeSchema pkAttr;
-    private final int pkIndex;
+    private final AttributeSchema indexedAttr;
+    private final int attrIndex;
     private final int n;
 
-    public BPlusTree(Buffer buffer, TableSchema table) {
+    public BPlusTree(Buffer buffer, TableSchema table, AttributeSchema attr) {
         this.buffer = buffer;
         this.table = table;
-        this.pkAttr = table.getPrimaryKey();
-        this.pkIndex = table.getAttributeIndex(pkAttr.getName());
+        this.indexedAttr = attr;
+        this.attrIndex = table.getAttributeIndex(attr.getName());
         this.n = table.getBtreeN();
     }
 
     public int getPkIndex() {
-        return pkIndex;
+        return attrIndex;
     }
 
     public int findTablePageForKey(Object key) {
@@ -220,11 +220,11 @@ public class BPlusTree {
     }
 
     private BPlusTreeNode readNode(int pageId) {
-        return buffer.getBPlusTreeNode(pageId, pkAttr);
+        return buffer.getBPlusTreeNode(pageId, indexedAttr);
     }
 
     private void writeNode(BPlusTreeNode node) {
-        buffer.writeBPlusTreeNode(node, pkAttr);
+        buffer.writeBPlusTreeNode(node, indexedAttr);
     }
 
     private BPlusTreeNode createNode(boolean isLeaf) {
