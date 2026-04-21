@@ -1,5 +1,6 @@
 package StorageManager;
 
+wimport Catalog.AttributeSchema;
 import Catalog.Catalog;
 import java.io.File;
 import java.io.IOException;
@@ -97,14 +98,56 @@ public class Buffer {
         return newPage;
     }
 
+    /**
+     * Reads a B+ tree node from a buffered page.
+     * Tree nodes are stored as the first record inside their backing page.
+     */
+    public BPlusTreeNode getBPlusTreeNode(int pageId, AttributeSchema keyAttribute) {
+        Page page = getPage(pageId);
+        if (page.getRecords().isEmpty()) {
+            throw new IllegalStateException("B+ tree node page " + pageId + " has no data.");
+        }
+
+        BPlusTreeNode node = BPlusTreeNode.fromBytes(page.getRecords().get(0), keyAttribute);
+        node.setPageId(pageId);
+        return node;
+    }
+
+    /**
+     * Writes a B+ tree node into its backing page.
+     */
+    public void writeBPlusTreeNode(BPlusTreeNode node, AttributeSchema keyAttribute) {
+        Page page = getPage(node.getPageId());
+        page.cleanData();
+        page.setNextPage(-1);
+
+        if (!page.addRecord(node.toBytes(keyAttribute))) {
+            throw new IllegalStateException("B+ tree node data exceeds page capacity.");
+        }
+    }
+
+    /**
+     * Allocates a new page and wraps it as a B+ tree node.
+     */
+    public BPlusTreeNode createBPlusTreeNode(boolean isLeaf) {
+        Page page = createNewPage();
+        page.setNextPage(-1);
+        return new BPlusTreeNode(page.getPageID(), isLeaf);
+    }
+
     private void addPageToBuffer(Page page) {
         if (page == null) {
             throw new IllegalArgumentException("Cannot buffer a null page.");
         }
 
-        evictPageIfNeeded();
-
         int pageId = page.getPageID();
+        if (this.pagesById.containsKey(pageId)) {
+            this.pagesById.put(pageId, page);
+            page.touch();
+            return;
+        }
+
+        evictPageIfNeeded();
         this.pagesById.put(pageId, page);
     }
 

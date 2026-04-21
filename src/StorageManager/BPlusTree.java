@@ -25,6 +25,15 @@ public class BPlusTree {
         return pkIndex;
     }
 
+    public int findTablePageForKey(Object key) {
+        if (!table.hasBtreeIndex()) {
+            return -1;
+        }
+
+        BPlusTreeNode leaf = findLeafNode(key);
+        return leaf.findTablePageForKey(key);
+    }
+
     public int search(Object key) {
         if (!table.hasBtreeIndex()) {
             return -1;
@@ -54,6 +63,13 @@ public class BPlusTree {
      * Inserts into the B+ tree.
      */
     public void insert(Object key, int tablePageId) {
+        upsert(key, tablePageId);
+    }
+
+    /**
+     * Inserts a new key or updates an existing key's data-page pointer.
+     */
+    public void upsert(Object key, int tablePageId) {
         if (!table.hasBtreeIndex()) {
             BPlusTreeNode root = createNode(true);
             root.insertLeafEntry(key, tablePageId);
@@ -62,12 +78,22 @@ public class BPlusTree {
             return;
         }
         BPlusTreeNode leaf = findLeafNode(key);
+        int existingIndex = leaf.findKeyIndex(key);
+        if (existingIndex != -1) {
+            leaf.getPointers().set(existingIndex, tablePageId);
+            writeNode(leaf);
+            return;
+        }
+
         leaf.insertLeafEntry(key, tablePageId);
         if (!leaf.isOverfull(n)) {
             writeNode(leaf);
             return;
         }
-        splitAndPropagate(leaf, null);
+        BPlusTreeNode parent = leaf.getPageId() == table.getBtreeRootPageId()
+            ? null
+            : findParentOf(table.getBtreeRootPageId(), leaf.getPageId(), null);
+        splitAndPropagate(leaf, parent);
     }
 
     /**
@@ -194,32 +220,14 @@ public class BPlusTree {
     }
 
     private BPlusTreeNode readNode(int pageId) {
-        Page page = buffer.getPage(pageId);
-        List<byte[]> records = page.getRecords();
-
-        if (records.isEmpty()) {
-            throw new IllegalStateException("B+ tree page " + pageId + " has no data.");
-        }
-
-        BPlusTreeNode node = BPlusTreeNode.fromBytes(records.get(0), pkAttr);
-        node.setPageId(pageId);
-        return node;
+        return buffer.getBPlusTreeNode(pageId, pkAttr);
     }
 
     private void writeNode(BPlusTreeNode node) {
-        Page page = buffer.getPage(node.getPageId());
-        page.cleanData();
-        page.setNextPage(-1);
-        byte[] data = node.toBytes(pkAttr);
-
-        if (!page.addRecord(data)) {
-            throw new IllegalStateException("B+ tree node data exceeds page capacity.");
-        }
+        buffer.writeBPlusTreeNode(node, pkAttr);
     }
 
     private BPlusTreeNode createNode(boolean isLeaf) {
-        Page page = buffer.createNewPage();
-        page.setNextPage(-1);
-        return new BPlusTreeNode(page.getPageID(), isLeaf);
+        return buffer.createBPlusTreeNode(isLeaf);
     }
 }
