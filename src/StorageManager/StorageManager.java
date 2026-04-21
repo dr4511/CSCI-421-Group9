@@ -197,7 +197,7 @@ public class StorageManager {
 		// return new table 
         TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
         for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(),attr.isUnique() ,attr.getDefaultValue()));
         }
 
         initializeTableStorage(resultTable);
@@ -223,7 +223,7 @@ public class StorageManager {
     public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
         TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
         for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.getDefaultValue(),attr.getIsUnique()));
+            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.isUnique(),attr.getDefaultValue()));
         }
         initializeTableStorage(resultTable);
         int pageId = table.getHeadPageId();
@@ -252,7 +252,7 @@ public class StorageManager {
     public void updateWhere(TableSchema table, AttributeSchema attr, IOperandNode newValue, IWhereTree whereTree) {
         TableSchema resultTable = new TableSchema(table.getName());
         for (AttributeSchema a : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.getDefaultValue(),a.getIsUnique()));
+            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.isUnique(),a.getDefaultValue()));
         }
         initializeTableStorage(resultTable);
         int idx = table.getAttributeIndex(attr.getName());
