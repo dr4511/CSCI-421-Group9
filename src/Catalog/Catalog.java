@@ -209,6 +209,9 @@ public class Catalog {
         out.writeBoolean(attr.isNotNull());
         out.writeBoolean(attr.isUnique());
 
+        out.writeInt(attr.getUniqueIndexRootPageId());
+        out.writeInt(attr.getUniqueIndexN());
+
         writeDefaultValue(out, dataType, attr.getDefaultValue());
     }
 
@@ -228,9 +231,17 @@ public class Catalog {
         boolean isPK = in.readBoolean();
         boolean isNN = in.readBoolean();
         boolean isUnique = in.readBoolean();
+
+        // Read persisted unique-column B+ tree index location.
+        int uniqueIndexRootPageId = in.readInt();
+        int uniqueIndexN = in.readInt();
+
         Object defVal = readDefaultValue(in, dataType);
 
-        return new AttributeSchema(name, dataType, isPK, isNN, isUnique, defVal);
+        AttributeSchema attr = new AttributeSchema(name, dataType, isPK, isNN, isUnique, defVal);
+        attr.setUniqueIndexRootPageId(uniqueIndexRootPageId);
+        attr.setUniqueIndexN(uniqueIndexN);
+        return attr;
     }
 
     private static void writeDefaultValue(DataOutputStream out, DataType dataType, Object value) throws IOException {

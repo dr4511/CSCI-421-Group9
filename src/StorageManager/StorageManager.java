@@ -42,6 +42,33 @@ public class StorageManager {
         this.nextTemporaryTableId = 0;
 
         this.buffer = new Buffer(pageSizeBytes, bufferSizePages, dbFile, catalog);
+
+        // Rebuild in-memory unique-index B+ trees from catalog
+        rebuildUniqueIndexesFromCatalog();
+    }
+
+    private void rebuildUniqueIndexesFromCatalog() {
+        for (TableSchema table : catalog.getAllTables()) {
+            for (AttributeSchema attr : table.getAttributes()) {
+                // Primary keys are enforced separately via hasPrimaryKeyViolation; skip them.
+                if (attr.isUnique() && !attr.isPrimaryKey() && attr.hasUniqueIndex()) {
+                    String key = table.getName() + "." + attr.getName();
+                    TableSchema proxy = buildUniqueIndexProxy(table, attr);
+                    uniqueIndexes.put(key, new BPlusTree(buffer, proxy, attr));
+                }
+            }
+        }
+    }
+
+    private TableSchema buildUniqueIndexProxy(TableSchema realTable, AttributeSchema attr) {
+        TableSchema proxy = new TableSchema(realTable) {
+            @Override public int  getBtreeRootPageId()      { return attr.getUniqueIndexRootPageId(); }
+            @Override public void setBtreeRootPageId(int id){ attr.setUniqueIndexRootPageId(id); }
+            @Override public int  getBtreeN()               { return attr.getUniqueIndexN(); }
+            @Override public void setBtreeN(int n)          { attr.setUniqueIndexN(n); }
+            @Override public boolean hasBtreeIndex()        { return attr.getUniqueIndexRootPageId() != -1; }
+        };
+        return proxy;
     }
 
     public Buffer getBuffer() {
@@ -68,12 +95,17 @@ public class StorageManager {
         }
 
         initializeTableStorage(table);
+
+        // Build a unique-column B+ tree for each UNIQUE (non-PK) attribute.
         for (AttributeSchema attr : table.getAttributes()) {
-            if (attr.isUnique()) {
+            if (attr.isUnique() && !attr.isPrimaryKey()) {
+                attr.setUniqueIndexN(BPlusTreeNode.computeN(pageSizeBytes, attr));
                 String key = table.getName() + "." + attr.getName();
-                uniqueIndexes.put(key, new BPlusTree(buffer, table, attr));
+                TableSchema proxy = buildUniqueIndexProxy(table, attr);
+                uniqueIndexes.put(key, new BPlusTree(buffer, proxy, attr));
             }
         }
+
         this.catalog.addTable(table);
         return true;
     }
@@ -269,18 +301,13 @@ public class StorageManager {
                             "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
                     }
                     if (attr.isUnique()) {
-                       // Find corresponding index
-                       for (BPlusTree tree : table.getUniqueIndexes()) {
-                           if (tree.getAttrIndex() == idx) {
-
-                               // Check if value already exists
-                               if (tree.contains(computed)) {
-
-                                   // IMPORTANT: allow if it's the same record value (no actual change)
-                                   Object oldValue = record.getValue(idx);
-                                   if (oldValue == null || !oldValue.equals(computed)) {
-                                       throw new IllegalArgumentException("UNIQUE constraint violation");
-                                   }
+                       String key = table.getName() + "." + attr.getName();
+                       BPlusTree tree = uniqueIndexes.get(key);
+                       if (tree != null) {
+                           if (tree.contains(computed)) {
+                               Object oldValue = record.getValue(idx);
+                               if (oldValue == null || !oldValue.equals(computed)) {
+                                   throw new IllegalArgumentException("UNIQUE constraint violation on column '" + attr.getName() + "'");
                                }
                            }
                        }
