@@ -253,75 +253,103 @@ public class StorageManager {
     }
 
     public TableSchema deleteWhere(TableSchema table, IWhereTree whereTree) {
-        TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
-        for (AttributeSchema attr : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(attr.getName(), attr.getDataType(), false, attr.isNotNull(), attr.isUnique(),attr.getDefaultValue()));
-        }
-        initializeTableStorage(resultTable);
-        int pageId = table.getHeadPageId();
-        while(pageId != -1) {
-            Page page = buffer.getPage(pageId);
-
-         
-            // Derialize records from byte[] to record
-            List<byte[]> recordData = page.getRecords();
-            for( byte[] data : recordData){
-                Record record = Record.fromBytes(data, table);
-                // If where evaluates to true, do not add to table
-                if(whereTree != null && !whereTree.evaluate(record, table)){
-                    appendRecordToTable(resultTable, record.getValues());
-                }
-            }
-            pageId = page.getNextPage();
-        }
-
-        freeTablePages(table);
-        table.setHeadPageId(resultTable.getHeadPageId());
-        table.setTailPageId(resultTable.getTailPageId());
-        return resultTable;
+    TableSchema resultTable = new TableSchema("__temp_where_" + nextTemporaryTableId++);
+    for (AttributeSchema attr : table.getAttributes()) {
+        resultTable.addAttribute(new AttributeSchema(
+            attr.getName(), attr.getDataType(), false,
+            attr.isNotNull(), attr.isUnique(), attr.getDefaultValue()));
     }
+    initializeTableStorage(resultTable);
+
+    AttributeSchema pk = table.getPrimaryKey();
+    BPlusTree pkTree = (catalog.isIndexing() && table.hasBtreeIndex() && pk != null)
+        ? new BPlusTree(buffer, table, pk)
+        : null;
+
+    int pageId = table.getHeadPageId();
+    while (pageId != -1) {
+        Page page = buffer.getPage(pageId);
+        List<byte[]> recordData = page.getRecords();
+        for (byte[] data : recordData) {
+            Record record = Record.fromBytes(data, table);
+            if (whereTree != null && !whereTree.evaluate(record, table)) {
+                // Record survives — copy it to the result table
+                appendRecordToTable(resultTable, record.getValues());
+            } else if (catalog.isIndexing() && pkTree != null) {
+                // Record is being deleted — remove it from the PK index
+                int pkIdx = table.getAttributeIndex(pk.getName());
+                Object pkVal = record.getValue(pkIdx);
+                pkTree.upsert(pkVal, -1);
+            }
+        }
+        pageId = page.getNextPage();
+    }
+
+    freeTablePages(table);
+    table.setHeadPageId(resultTable.getHeadPageId());
+    table.setTailPageId(resultTable.getTailPageId());
+    return resultTable;
+}
 
     public void updateWhere(TableSchema table, AttributeSchema attr, IOperandNode newValue, IWhereTree whereTree) {
-        TableSchema resultTable = new TableSchema(table.getName());
-        for (AttributeSchema a : table.getAttributes()) {
-            resultTable.addAttribute(new AttributeSchema(a.getName(), a.getDataType(), a.isPrimaryKey(), a.isNotNull(), a.isUnique(),a.getDefaultValue()));
-        }
-        initializeTableStorage(resultTable);
-        int idx = table.getAttributeIndex(attr.getName());
-        int pageId = table.getHeadPageId();
-        while (pageId != -1) {
-            Page page = buffer.getPage(pageId);
-            for (byte[] data : page.getRecords()) {
-                Record record = Record.fromBytes(data, table);
-                Object[] values = record.getValues().clone();
-                if (whereTree == null || whereTree.evaluate(record, table)) {
-                    Object computed = newValue.getValue(record, table);
-                    if (computed == null && attr.isNotNull()) {
-                        throw new IllegalArgumentException(
-                            "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
-                    }
-                    if (attr.isUnique()) {
-                       String key = table.getName() + "." + attr.getName();
-                       BPlusTree tree = uniqueIndexes.get(key);
-                       if (tree != null) {
-                           if (tree.contains(computed)) {
-                               Object oldValue = record.getValue(idx);
-                               if (oldValue == null || !oldValue.equals(computed)) {
-                                   throw new IllegalArgumentException("UNIQUE constraint violation on column '" + attr.getName() + "'");
-                               }
-                           }
-                       }
-                    }
-                    values[idx] = computed;
-                }
-                insertIntoTable(resultTable, values);
-            }
-            pageId = page.getNextPage();
-        }
-        freeTablePages(table);
-        table.setHeadPageId(resultTable.getHeadPageId());
-        table.setTailPageId(resultTable.getTailPageId());
+    TableSchema resultTable = new TableSchema(table.getName());
+    for (AttributeSchema a : table.getAttributes()) {
+        resultTable.addAttribute(new AttributeSchema(
+            a.getName(), a.getDataType(), a.isPrimaryKey(),
+            a.isNotNull(), a.isUnique(), a.getDefaultValue()));
     }
+    initializeTableStorage(resultTable);
+
+    AttributeSchema pk = table.getPrimaryKey();
+    BPlusTree pkTree = (catalog.isIndexing() && table.hasBtreeIndex() && pk != null)
+        ? new BPlusTree(buffer, table, pk)
+        : null;
+
+    int idx = table.getAttributeIndex(attr.getName());
+    int pageId = table.getHeadPageId();
+    while (pageId != -1) {
+        Page page = buffer.getPage(pageId);
+        for (byte[] data : page.getRecords()) {
+            Record record = Record.fromBytes(data, table);
+            Object[] values = record.getValues().clone();
+            if (whereTree == null || whereTree.evaluate(record, table)) {
+                Object computed = newValue.getValue(record, table);
+                if (computed == null && attr.isNotNull()) {
+                    throw new IllegalArgumentException(
+                        "Cannot set attribute '" + attr.getName() + "' to NULL (NOTNULL constraint)");
+                }
+                if (attr.isUnique()) {
+                    String key = table.getName() + "." + attr.getName();
+                    BPlusTree tree = uniqueIndexes.get(key);
+                    if (tree != null && tree.contains(computed)) {
+                        Object oldVal = record.getValue(idx);
+                        if (oldVal == null || !oldVal.equals(computed)) {
+                            throw new IllegalArgumentException(
+                                "UNIQUE constraint violation on column '" + attr.getName() + "'");
+                        }
+                    }
+                }
+
+                // If the PK itself is being updated, remove the old PK entry from the index
+                if (catalog.isIndexing() && pkTree != null && attr.isPrimaryKey()) {
+                    int pkIdx = table.getAttributeIndex(pk.getName());
+                    Object oldPkVal = record.getValue(pkIdx);
+                    pkTree.upsert(oldPkVal, -1);
+                }
+
+                values[idx] = computed;
+            }
+
+            // insertIntoTable will re-index the new PK value via updateUniqueIndexes
+            insertIntoTable(resultTable, values);
+        }
+        pageId = page.getNextPage();
+    }
+
+    freeTablePages(table);
+    table.setHeadPageId(resultTable.getHeadPageId());
+    table.setTailPageId(resultTable.getTailPageId());
+}
 
     private void initializeTableStorage(TableSchema table) {
         Page newPage = this.buffer.createNewPage();
@@ -478,68 +506,114 @@ public class StorageManager {
      * INSERT helper for cases like ORDERBY temp tables where duplicate sort-key values are allowed.
      */
     public boolean insertIntoTable(TableSchema table, Object[] values, boolean checkPrimaryKeyDuplicates) {
-        if (table == null || values == null) {
-            throw new IllegalArgumentException("table and values must be non-null.");
-        }
-        if (values.length != table.getAttributeCount()) {
-            throw new IllegalArgumentException("Value count does not match table attribute count.");
-        }
+    if (table == null || values == null) {
+        throw new IllegalArgumentException("table and values must be non-null.");
+    }
+    if (values.length != table.getAttributeCount()) {
+        throw new IllegalArgumentException("Value count does not match table attribute count.");
+    }
 
-        Record incomingRecord = new Record(values.clone());
-        if (checkPrimaryKeyDuplicates && hasPrimaryKeyViolation(table, incomingRecord)) {
-            return false;
-        }
-        for (AttributeSchema attr : table.getAttributes()) {
+    Record incomingRecord = new Record(values.clone());
+    if (checkPrimaryKeyDuplicates && hasPrimaryKeyViolation(table, incomingRecord)) {
+        return false;
+    }
+
+    for (AttributeSchema attr : table.getAttributes()) {
         if (attr.isUnique()) {
             int idx = table.getAttributeIndex(attr.getName());
             Object value = values[idx];
-
             String key = table.getName() + "." + attr.getName();
             BPlusTree tree = uniqueIndexes.get(key);
+            if (tree != null && tree.contains(value)) {
+                return false;
+            }
+        }
+    }
 
-        if (tree != null && tree.contains(value)) {
-            return false; // UNIQUE violation
+    AttributeSchema primaryKey = table.getPrimaryKey();
+    if (primaryKey == null) {
+        throw new IllegalStateException("Primary key not found.");
+    }
+    int pkIndex = table.getAttributeIndex(primaryKey.getName());
+    byte[] incomingBytes = incomingRecord.toBytes(table);
+    Object incomingPk = incomingRecord.getValue(pkIndex);
+
+    if (catalog.isIndexing() && table.hasBtreeIndex()) {
+        return insertWithIndex(table, values, incomingBytes, pkIndex, incomingPk);
+    } else {
+        return insertBruteForce(table, values, incomingBytes, pkIndex, incomingPk);
+    }
+}
+
+/**
+ * Index-assisted insertion: uses the primary key B+ tree to locate the correct
+ * page directly, skipping the linear page scan.
+ */
+private boolean insertWithIndex(TableSchema table, Object[] values, byte[] incomingBytes, int pkIndex, Object incomingPk) {
+    BPlusTree pkTree = new BPlusTree(buffer, table, table.getPrimaryKey());
+    int targetPageId = pkTree.findTablePageForKey(incomingPk);
+
+    if (targetPageId == -1) {
+        // Key not yet in index — fall back to brute force for placement
+        return insertBruteForce(table, values, incomingBytes, pkIndex, incomingPk);
+    }
+
+    int prevPageId = findPrevPageId(table, targetPageId);
+    Page targetPage = buffer.getPage(targetPageId);
+    int insertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
+    insertIntoPageOrSplit(table, prevPageId, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+    updateUniqueIndexes(table, values, targetPageId);
+    return true;
+}
+/**
+ * Brute-force insertion: linear scan through pages to find the correct position.
+ * Used when indexing is disabled or the table has no B+ tree index.
+ */
+private boolean insertBruteForce(TableSchema table, Object[] values, byte[] incomingBytes, int pkIndex, Object incomingPk) {
+    int prevPageId = -1;
+    int pageId = table.getHeadPageId();
+    while (pageId != -1) {
+        Page page = this.buffer.getPage(pageId);
+        if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
+            int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
+            insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+            updateUniqueIndexes(table, values, pageId);
+            return true;
+        }
+        prevPageId = pageId;
+        pageId = page.getNextPage();
+    }
+    return true;
+}
+/**
+ * Updates all unique-column B+ tree indexes after a successful insertion.
+ */
+private void updateUniqueIndexes(TableSchema table, Object[] values, int insertedPageId) {
+    for (AttributeSchema attr : table.getAttributes()) {
+        if (attr.isUnique()) {
+            int idx = table.getAttributeIndex(attr.getName());
+            Object value = values[idx];
+            String key = table.getName() + "." + attr.getName();
+            BPlusTree tree = uniqueIndexes.get(key);
+            if (tree != null) {
+                tree.insert(value, insertedPageId);
+            }
         }
     }
 }
-        AttributeSchema primaryKey = table.getPrimaryKey();
-        if (primaryKey == null) {
-            throw new IllegalStateException("Primary key not found.");
-        }
-        int pkIndex = table.getAttributeIndex(primaryKey.getName());
-        byte[] incomingBytes = incomingRecord.toBytes(table);
-        Object incomingPk = incomingRecord.getValue(pkIndex);
-
-        int prevPageId = -1;
-        int pageId = table.getHeadPageId();
-        while (pageId != -1) {
-            Page page = this.buffer.getPage(pageId);
-            if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
-                int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
-                insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
-                for (AttributeSchema attr : table.getAttributes()) {
-                    if (attr.isUnique()) {
-                        int idx = table.getAttributeIndex(attr.getName());
-                        Object value = values[idx];
-
-                        String key = table.getName() + "." + attr.getName();
-                        BPlusTree tree = uniqueIndexes.get(key);
-
-                        if (tree != null) {
-                            tree.insert(value, pageId); // pageId from insertion context
-                        }
-                    }
-                }
-                return true;
-            }
-
-            prevPageId = pageId;
-            pageId = page.getNextPage();
-        }
-
-        return true;
+/**
+ * Walks the page chain to find the page immediately before targetPageId.
+ * Returns -1 if targetPageId is the head page.
+ */
+private int findPrevPageId(TableSchema table, int targetPageId) {
+    int prevPageId = -1;
+    int currPageId = table.getHeadPageId();
+    while (currPageId != -1 && currPageId != targetPageId) {
+        prevPageId = currPageId;
+        currPageId = buffer.getPage(currPageId).getNextPage();
     }
-
+    return prevPageId;
+}
     /**
      * TRICK IS TO JUST CREATE COMPLETELY NEW TABLES
      * COPY OVER ALL THE DATA TO THE NEW TABLES
