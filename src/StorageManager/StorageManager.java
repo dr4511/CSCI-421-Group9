@@ -537,7 +537,8 @@ public class StorageManager {
     int pkIndex = table.getAttributeIndex(primaryKey.getName());
     byte[] incomingBytes = incomingRecord.toBytes(table);
     Object incomingPk = incomingRecord.getValue(pkIndex);
-
+    
+    System.out.println(table.hasBtreeIndex());
     if (catalog.isIndexing() && table.hasBtreeIndex()) {
         return insertWithIndex(table, values, incomingBytes, pkIndex, incomingPk);
     } else {
@@ -717,6 +718,11 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
         Object candidatePkValue = candidate.getValue(pkIndex);
         if (candidatePkValue == null) {
             return true;
+        }
+
+        if (catalog.isIndexing() && table.hasBtreeIndex()) {
+            BPlusTree pkTree = new BPlusTree(buffer, table, pk);
+            return pkTree.contains(candidatePkValue);
         }
 
         int pageId = table.getHeadPageId();
