@@ -96,6 +96,13 @@ public class StorageManager {
 
         initializeTableStorage(table);
 
+        if (catalog.isIndexing()) {
+            AttributeSchema pk = table.getPrimaryKey();
+            if (pk != null) {
+                table.setBtreeN(BPlusTreeNode.computeN(pageSizeBytes, pk));
+            }
+        }
+
         // Build a unique-column B+ tree for each UNIQUE (non-PK) attribute.
         for (AttributeSchema attr : table.getAttributes()) {
             if (attr.isUnique() && !attr.isPrimaryKey()) {
@@ -538,7 +545,6 @@ public class StorageManager {
     byte[] incomingBytes = incomingRecord.toBytes(table);
     Object incomingPk = incomingRecord.getValue(pkIndex);
     
-    System.out.println(table.hasBtreeIndex());
     if (catalog.isIndexing() && table.hasBtreeIndex()) {
         return insertWithIndex(table, values, incomingBytes, pkIndex, incomingPk);
     } else {
@@ -562,8 +568,11 @@ private boolean insertWithIndex(TableSchema table, Object[] values, byte[] incom
     int prevPageId = findPrevPageId(table, targetPageId);
     Page targetPage = buffer.getPage(targetPageId);
     int insertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
-    insertIntoPageOrSplit(table, prevPageId, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+    int actualPageId = insertIntoPageOrSplit(table, prevPageId, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk);
     updateUniqueIndexes(table, values, targetPageId);
+
+    pkTree.upsert(incomingPk, actualPageId);
+
     return true;
 }
 /**
@@ -577,8 +586,14 @@ private boolean insertBruteForce(TableSchema table, Object[] values, byte[] inco
         Page page = this.buffer.getPage(pageId);
         if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
             int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
-            insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+            int actualPageId = insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
             updateUniqueIndexes(table, values, pageId);
+
+            if (catalog.isIndexing()) {
+                BPlusTree pkTree = new BPlusTree(buffer, table, table.getPrimaryKey());
+                pkTree.upsert(incomingPk, actualPageId);
+            }
+
             return true;
         }
         prevPageId = pageId;
@@ -754,7 +769,10 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
         return records.size();
     }
 
-    private void insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
+    /*
+     * returns new page id for b+ tree
+     */
+    private int insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
         Page page = this.buffer.getPage(pageId);
         int nextPageId = page.getNextPage();
 
@@ -766,7 +784,7 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
 
         if (page.getFreeSpace() >= incomingBytes.length + SLOT_ENTRY_BYTES) {
             rewritePageRecords(page, candidateRecords, nextPageId);
-            return;
+            return pageId;
         }
 
         Page leftPage = this.buffer.createNewPage();
@@ -783,6 +801,29 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
         }
 
         freePage(page);
+
+        // reindex moved records
+        if (catalog.isIndexing()) {
+            BPlusTree pkTree = new BPlusTree(buffer, table, table.getPrimaryKey());
+
+            for (byte[] data : leftPage.getRecords()) {
+                Record record = Record.fromBytes(data, table);
+                Object pkVal = record.getValue(pkIndex);
+                pkTree.upsert(pkVal, leftPage.getPageID());
+            }
+
+            for (byte[] data : rightPage.getRecords()) {
+                Record record = Record.fromBytes(data, table);
+                Object pkVal = record.getValue(pkIndex);
+                pkTree.upsert(pkVal, rightPage.getPageID());
+            }
+        }
+
+        if (insertIndex < mid) {
+            return leftPage.getPageID();
+        } else {
+            return rightPage.getPageID();
+        }
     }
 
     private Object lastPrimaryKeyInPage(TableSchema table, Page page, int pkIndex) {
