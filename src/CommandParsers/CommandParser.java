@@ -323,8 +323,13 @@ public class CommandParser {
                 break;
             }
 
-            if (storageManager.insertIntoTable(table, values) == false) {
-                insertError = "Error: duplicate primary key value: " + formatRowTokens(rowTokens);
+            try {
+                if (storageManager.insertIntoTable(table, values) == false) {
+                    insertError = "Error: duplicate primary key value: " + formatRowTokens(rowTokens);
+                    break;
+                }
+            } catch (IllegalArgumentException e) {
+                insertError = e.getMessage() + ": " + formatRowTokens(rowTokens);
                 break;
             }
 

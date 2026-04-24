@@ -541,7 +541,8 @@ public class StorageManager {
             String key = table.getName() + "." + attr.getName();
             BPlusTree tree = uniqueIndexes.get(key);
             if (tree != null && tree.contains(value)) {
-                return false;
+                throw new IllegalArgumentException(
+                    "Error: UNIQUE constraint violation on column '" + attr.getName() + "': value " + value + " already exists");
             }
         }
     }
