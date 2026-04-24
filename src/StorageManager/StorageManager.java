@@ -270,7 +270,7 @@ public class StorageManager {
 
     AttributeSchema pk = table.getPrimaryKey();
     BPlusTree pkTree = (catalog.isIndexing() && table.hasBtreeIndex() && pk != null)
-        ? new BPlusTree(buffer, table, pk)
+        ? uniqueIndexes.get(table.getName())
         : null;
 
     int pageId = table.getHeadPageId();
@@ -309,7 +309,7 @@ public class StorageManager {
 
     AttributeSchema pk = table.getPrimaryKey();
     BPlusTree pkTree = (catalog.isIndexing() && table.hasBtreeIndex() && pk != null)
-        ? new BPlusTree(buffer, table, pk)
+        ? uniqueIndexes.get(table.getName())
         : null;
 
     int idx = table.getAttributeIndex(attr.getName());
@@ -557,7 +557,10 @@ public class StorageManager {
  * page directly, skipping the linear page scan.
  */
 private boolean insertWithIndex(TableSchema table, Object[] values, byte[] incomingBytes, int pkIndex, Object incomingPk) {
-    BPlusTree pkTree = new BPlusTree(buffer, table, table.getPrimaryKey());
+    BPlusTree pkTree = uniqueIndexes.get(table.getName());
+    if (pkTree == null) {
+        return insertBruteForce(table, values, incomingBytes, pkIndex, incomingPk);
+    }
     int targetPageId = pkTree.findTablePageForKey(incomingPk);
 
     if (targetPageId == -1) {
