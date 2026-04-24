@@ -298,6 +298,7 @@ public class StorageManager {
         freeTablePages(table);
         table.setHeadPageId(resultTable.getHeadPageId());
         table.setTailPageId(resultTable.getTailPageId());
+        table.setBtreeRootPageId(resultTable.getBtreeRootPageId());
         return resultTable;
     }
 
