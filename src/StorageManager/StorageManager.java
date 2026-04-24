@@ -267,6 +267,9 @@ public class StorageManager {
                 attr.isNotNull(), attr.isUnique(), attr.getDefaultValue()));
         }
         initializeTableStorage(resultTable);
+        if (catalog.isIndexing()) {
+            resultTable.setBtreeN(table.getBtreeN());
+        }
 
         AttributeSchema pk = table.getPrimaryKey();
         BPlusTree pkTree = (catalog.isIndexing() && table.hasBtreeIndex() && pk != null)
