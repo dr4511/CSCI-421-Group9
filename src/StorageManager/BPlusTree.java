@@ -55,8 +55,14 @@ public class BPlusTree {
         if (!table.hasBtreeIndex()) {
             return false;
         }
+
         BPlusTreeNode leaf = findLeafNode(key);
-        return leaf.findKeyIndex(key) != -1;
+        int idx = leaf.findKeyIndex(key);
+        if (idx == -1) {
+            return false;
+        }
+
+        return leaf.getPointers().get(idx) != -1;
     }
 
     /**
@@ -92,7 +98,7 @@ public class BPlusTree {
         }
         BPlusTreeNode parent = leaf.getPageId() == table.getBtreeRootPageId()
             ? null
-            : findParentOf(table.getBtreeRootPageId(), leaf.getPageId(), null);
+            : findParentOf(table.getBtreeRootPageId(), leaf.getPageId(), key);
         splitAndPropagate(leaf, parent);
     }
 
@@ -197,25 +203,29 @@ public class BPlusTree {
             writeNode(parent);
             return;
         }
-        BPlusTreeNode parentOfParent = findParentOf(table.getBtreeRootPageId(), parent.getPageId(), null);
+        BPlusTreeNode parentOfParent = findParentOf(table.getBtreeRootPageId(), parent.getPageId(), pushUpKey);
         splitAndPropagate(parent, parentOfParent);
     }
 
 
-    private BPlusTreeNode findParentOf(int currentPageId, int targetPageId, BPlusTreeNode currentParent) {
-        if (currentPageId == targetPageId) {
-            return currentParent;
-        }
-        BPlusTreeNode current = readNode(currentPageId);
-        if (current.isLeaf()) {
+    private BPlusTreeNode findParentOf(int rootPageId, int targetPageId, Object searchKey) {
+        if (rootPageId == targetPageId) {
             return null;
         }
-        for (int childPageId : current.getPointers()) {
-            BPlusTreeNode result = findParentOf(childPageId, targetPageId, current);
-            if (result != null || childPageId == targetPageId) {
-                return result != null ? result : current;
+
+        BPlusTreeNode current = readNode(rootPageId);
+        while (current.isLeaf() == false) {
+            List<Integer> pointers = current.getPointers();
+            for (int i = 0; i < pointers.size(); i++) {
+                if (pointers.get(i) == targetPageId) {
+                    return current;
+                }
             }
+
+            int childIndex = current.findChildIndex(searchKey);
+            current = readNode(pointers.get(childIndex));
         }
+
         return null;
     }
 

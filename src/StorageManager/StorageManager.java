@@ -285,11 +285,23 @@ public class StorageManager {
                 if (whereTree != null && !whereTree.evaluate(record, table)) {
                     // Record survives — copy it to the result table
                     appendRecordToTable(resultTable, record.getValues());
-                } else if (catalog.isIndexing() && pkTree != null) {
-                    // Record is being deleted — remove it from the PK index
-                    int pkIdx = table.getAttributeIndex(pk.getName());
-                    Object pkVal = record.getValue(pkIdx);
-                    pkTree.upsert(pkVal, -1);
+                } else {
+                    if (catalog.isIndexing() && pkTree != null) {
+                        int pkIdx = table.getAttributeIndex(pk.getName());
+                        Object pkVal = record.getValue(pkIdx);
+                        pkTree.upsert(pkVal, -1);
+                    }
+                    for (AttributeSchema a : table.getAttributes()) {
+                        if (a.isUnique() && !a.isPrimaryKey()) {
+                            String uKey = table.getName() + "." + a.getName();
+                            BPlusTree tree = uniqueIndexes.get(uKey);
+                            if (tree != null) {
+                                int aIdx = table.getAttributeIndex(a.getName());
+                                Object val = record.getValue(aIdx);
+                                tree.upsert(val, -1);
+                            }
+                        }
+                    }
                 }
             }
             pageId = page.getNextPage();
@@ -575,10 +587,10 @@ private boolean insertWithIndex(TableSchema table, Object[] values, byte[] incom
         return insertBruteForce(table, values, incomingBytes, pkIndex, incomingPk);
     }
 
-    int prevPageId = findPrevPageId(table, targetPageId);
+    //int prevPageId = findPrevPageId(table, targetPageId);
     Page targetPage = buffer.getPage(targetPageId);
     int insertIndex = findInsertIndexInPage(table, targetPage, pkIndex, incomingPk);
-    int actualPageId = insertIntoPageOrSplit(table, prevPageId, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+    int actualPageId = insertIntoPageOrSplit(table, targetPageId, insertIndex, incomingBytes, pkIndex, incomingPk);
     updateUniqueIndexes(table, values, targetPageId);
 
     pkTree.upsert(incomingPk, actualPageId);
@@ -590,13 +602,13 @@ private boolean insertWithIndex(TableSchema table, Object[] values, byte[] incom
  * Used when indexing is disabled or the table has no B+ tree index.
  */
 private boolean insertBruteForce(TableSchema table, Object[] values, byte[] incomingBytes, int pkIndex, Object incomingPk) {
-    int prevPageId = -1;
+    // int prevPageId = -1;
     int pageId = table.getHeadPageId();
     while (pageId != -1) {
         Page page = this.buffer.getPage(pageId);
         if (shouldInsertInPage(table, page, pkIndex, incomingPk)) {
             int insertIndex = findInsertIndexInPage(table, page, pkIndex, incomingPk);
-            int actualPageId = insertIntoPageOrSplit(table, prevPageId, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
+            int actualPageId = insertIntoPageOrSplit(table, pageId, insertIndex, incomingBytes, pkIndex, incomingPk);
             updateUniqueIndexes(table, values, pageId);
 
             if (catalog.isIndexing()) {
@@ -606,7 +618,7 @@ private boolean insertBruteForce(TableSchema table, Object[] values, byte[] inco
 
             return true;
         }
-        prevPageId = pageId;
+        // prevPageId = pageId;
         pageId = page.getNextPage();
     }
     return true;
@@ -782,7 +794,7 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
     /*
      * returns new page id for b+ tree
      */
-    private int insertIntoPageOrSplit(TableSchema table, int prevPageId, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
+        private int insertIntoPageOrSplit(TableSchema table, int pageId, int insertIndex, byte[] incomingBytes, int pkIndex, Object incomingPk) {
         Page page = this.buffer.getPage(pageId);
         int nextPageId = page.getNextPage();
 
@@ -797,30 +809,20 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
             return pageId;
         }
 
-        Page leftPage = this.buffer.createNewPage();
         Page rightPage = this.buffer.createNewPage();
         int mid = candidateRecords.size() / 2;
-        rewritePageRecords(leftPage, new ArrayList<>(candidateRecords.subList(0, mid)), rightPage.getPageID());
+        rewritePageRecords(page, new ArrayList<>(candidateRecords.subList(0, mid)), rightPage.getPageID());
         rewritePageRecords(rightPage, new ArrayList<>(candidateRecords.subList(mid, candidateRecords.size())), nextPageId);
 
-        if (prevPageId == -1) {
-            table.setHeadPageId(leftPage.getPageID());
-        } else {
-            Page prevPage = this.buffer.getPage(prevPageId);
-            prevPage.setNextPage(leftPage.getPageID());
+        if (nextPageId == -1) {
+            table.setTailPageId(rightPage.getPageID());
         }
 
-        freePage(page);
+        // freePage(page);
 
         // reindex moved records
         if (catalog.isIndexing()) {
             BPlusTree pkTree = new BPlusTree(buffer, table, table.getPrimaryKey());
-
-            for (byte[] data : leftPage.getRecords()) {
-                Record record = Record.fromBytes(data, table);
-                Object pkVal = record.getValue(pkIndex);
-                pkTree.upsert(pkVal, leftPage.getPageID());
-            }
 
             for (byte[] data : rightPage.getRecords()) {
                 Record record = Record.fromBytes(data, table);
@@ -830,7 +832,7 @@ private int findPrevPageId(TableSchema table, int targetPageId) {
         }
 
         if (insertIndex < mid) {
-            return leftPage.getPageID();
+            return pageId;
         } else {
             return rightPage.getPageID();
         }
