@@ -368,7 +368,7 @@ public class StorageManager {
                 }
 
                 // insertIntoTable will re-index the new PK value via updateUniqueIndexes
-                insertIntoTable(resultTable, values);
+                insertIntoTable(resultTable, values, false);
             }
             pageId = page.getNextPage();
         }
@@ -546,15 +546,17 @@ public class StorageManager {
         return false;
     }
 
-    for (AttributeSchema attr : table.getAttributes()) {
-        if (attr.isUnique()) {
-            int idx = table.getAttributeIndex(attr.getName());
-            Object value = values[idx];
-            String key = table.getName() + "." + attr.getName();
-            BPlusTree tree = uniqueIndexes.get(key);
-            if (tree != null && tree.contains(value)) {
-                throw new IllegalArgumentException(
-                    "Error: UNIQUE constraint violation on column '" + attr.getName() + "': value " + value + " already exists");
+    if (checkPrimaryKeyDuplicates) {
+        for (AttributeSchema attr : table.getAttributes()) {
+            if (attr.isUnique()) {
+                int idx = table.getAttributeIndex(attr.getName());
+                Object value = values[idx];
+                String key = table.getName() + "." + attr.getName();
+                BPlusTree tree = uniqueIndexes.get(key);
+                if (tree != null && tree.contains(value)) {
+                    throw new IllegalArgumentException(
+                        "Error: UNIQUE constraint violation on column '" + attr.getName() + "': value " + value + " already exists");
+                }
             }
         }
     }
