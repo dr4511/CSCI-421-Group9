@@ -186,6 +186,13 @@ public class StorageManager {
         }
 
         initializeTableStorage(orderedTable);
+        
+        if (catalog.isIndexing()) {
+            AttributeSchema orderedPk = orderedTable.getPrimaryKey();
+            if (orderedPk != null) {
+                orderedTable.setBtreeN(BPlusTreeNode.computeN(pageSizeBytes, orderedPk));
+            }
+        }
 
         int currPageId = table.getHeadPageId();
         while (currPageId != -1) {
